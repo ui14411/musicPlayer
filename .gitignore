@@ -1,0 +1,203 @@
+# =========================
+# Build output
+# =========================
+out/
+build/
+cmake-build-*/
+Debug/
+Release/
+x64/
+x86/
+
+*.exe
+*.dll
+*.lib
+*.a
+*.so
+*.dylib
+
+*.obj
+*.o
+*.pdb
+*.ilk
+*.exp
+*.idb
+*.iobj
+*.ipdb
+
+
+# =========================
+# Visual Studio
+# =========================
+.vs/
+*.suo
+*.user
+*.user.*
+*.VC.db
+*.VC.VC.opendb
+
+
+# =========================
+# VS Code
+# =========================
+.vscode/
+
+
+# =========================
+# CMake
+# =========================
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CMakeUserPresets.json
+Makefile
+
+
+# =========================
+# Qt generated
+# =========================
+*.pro.user
+*.creator
+*.creator.*
+*.autosave
+*.stash
+
+qmlcachegen/
+.qmlcache/
+.qmlls/
+*.qmlc
+*.jsc
+
+moc_*.cpp
+moc_*.h
+qrc_*.cpp
+rcc_*.cpp
+ui_*.h
+
+
+# =========================
+# ONNX Runtime
+# =========================
+# 太大，不上传
+ONNXRuntime/lib/
+ONNXRuntime/bin/
+
+ONNXRuntime/*.dll
+ONNXRuntime/*.lib
+ONNXRuntime/*.so
+ONNXRuntime/*.a
+ONNXRuntime/*.pdb
+ONNXRuntime/*.exp
+
+
+# =========================
+# AI Models
+# =========================
+# 模型通过 Release 或网盘提供
+model/
+*.onnx
+*.pt
+*.pth
+*.pb
+*.h5
+*.ckpt
+
+
+# =========================
+# FFmpeg
+# =========================
+# 保留 FFmpeg
+# 不忽略 FFmpeg/
+
+
+# =========================
+# Runtime user data
+# =========================
+music/
+video/
+
+Image/
+cover/
+lrc/
+
+pureHumanVoice/
+pureAccompaniment/
+surrounding/
+
+config/
+HRTF/
+
+python_exe/
+
+[double]music/
+
+
+# =========================
+# Logs
+# =========================
+*.log
+*.tmp
+*.temp
+*.bak
+
+*.swp
+*.swo
+*~
+
+
+# =========================
+# Python
+# =========================
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+venv/
+env/
+.venv/
+
+.pytest_cache/
+.mypy_cache/
+
+
+# =========================
+# IDE
+# =========================
+.idea/
+*.iml
+
+
+# =========================
+# OS
+# =========================
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+*.lnk
+
+
+# =========================
+# Archive
+# =========================
+*.zip
+*.rar
+*.7z
+*.tar
+*.tar.gz
+*.bz2
+
+
+# =========================
+# VS generated project
+# =========================
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+
+
+# =========================
+# Empty folders
+# =========================
+!.gitkeep
