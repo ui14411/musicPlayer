@@ -1,5 +1,6 @@
 ﻿#include "HeaderFile/AudioSeparator.h"
 #include "HeaderFile/LoadlocalMusic.h"
+#include "HeaderFile/WebgetCover.h"
 
 #include <onnxruntime_cxx_api.h>
 #include <libavformat/avformat.h>
@@ -204,96 +205,6 @@ bool AudioSeparator::decodeAudio(const std::string& filePath,
     return true;
 }
 
-std::vector<AudioSeparator::STFTFrame> AudioSeparator::stft(const std::vector<float>& pcm, int fftSize, int hopSize) 
-{
-    std::vector<STFTFrame> frames;
-    kiss_fft_cfg cfg = kiss_fft_alloc(fftSize, 0, nullptr, nullptr);
-    if (!cfg) return frames;
-
-    std::vector<float> window(fftSize);
-    for (int i = 0; i < fftSize; ++i)
-        window[i] = 0.54f - 0.46f * cos(2.0 * M_PI * i / (fftSize - 1));
-
-    int specSize = fftSize / 2 + 1;
-    std::vector<kiss_fft_cpx> in(fftSize);
-    std::vector<kiss_fft_cpx> out(fftSize);
-
-    for (size_t start = 0; start + fftSize <= pcm.size(); start += hopSize) 
-    {
-        for (int j = 0; j < fftSize; ++j) 
-        {
-            in[j].r = pcm[start + j] * window[j];
-            in[j].i = 0.0f;
-        }
-        kiss_fft(cfg, in.data(), out.data());
-        STFTFrame frame;
-        frame.spectrum.resize(specSize);
-        for (int k = 0; k < specSize; ++k)
-            frame.spectrum[k] = std::complex<float>(out[k].r, out[k].i);
-        frames.push_back(std::move(frame));
-    }
-    free(cfg);
-    return frames;
-}
-
-std::vector<float> AudioSeparator::istft(const std::vector<STFTFrame>& frames, int fftSize, int hopSize) 
-{
-    if (frames.empty()) return {};
-    kiss_fft_cfg cfg = kiss_fft_alloc(fftSize, 1, nullptr, nullptr);
-    if (!cfg) return {};
-
-    int outputSize = (frames.size() - 1) * hopSize + fftSize;
-    std::vector<float> output(outputSize, 0.0f);
-    std::vector<float> weight(outputSize, 0.0f);
-
-    std::vector<float> window(fftSize);
-    for (int i = 0; i < fftSize; ++i)
-        window[i] = 0.54f - 0.46f * cos(2.0 * M_PI * i / (fftSize - 1));
-
-    int half = fftSize / 2;
-    std::vector<kiss_fft_cpx> in(fftSize);
-    std::vector<kiss_fft_cpx> out(fftSize);
-
-    for (size_t fi = 0; fi < frames.size(); ++fi) 
-    {
-        const auto& spec = frames[fi].spectrum;
-        in[0].r = spec[0].real();
-        in[0].i = 0.0f;
-        for (int k = 1; k < half; ++k) 
-        {
-            in[k].r = spec[k].real();
-            in[k].i = spec[k].imag();
-        }
-        if (fftSize % 2 == 0) 
-        {
-            in[half].r = spec[half].real();
-            in[half].i = 0.0f;
-        }
-        for (int k = half + 1; k < fftSize; ++k) 
-        {
-            int c = fftSize - k;
-            in[k].r = in[c].r;
-            in[k].i = -in[c].i;
-        }
-        kiss_fft(cfg, in.data(), out.data());
-        int start = fi * hopSize;
-        for (int n = 0; n < fftSize; ++n) 
-        {
-            float s = out[n].r / fftSize;
-            s *= window[n];
-            output[start + n] += s;
-            weight[start + n] += window[n] * window[n];
-        }
-    }
-    for (size_t i = 0; i < output.size(); ++i) 
-    {
-        if (weight[i] > 1e-6f)
-            output[i] /= weight[i];
-    }
-    free(cfg);
-    return output;
-}
-
 void AudioSeparator::buildInputTensor(const std::vector<STFTFrame>& leftFrames,
     const std::vector<STFTFrame>& rightFrames,
     int startFrame,
@@ -399,6 +310,183 @@ bool AudioSeparator::writeWav(
     file.close();
 
     return true;
+}
+
+//  流式 WAV 写入,close 时回填头长度
+bool WavStreamWriter::open(const QString& path, int sampleRate, int channels)
+{
+    m_sampleRate = sampleRate;
+    m_channels = channels;
+    m_dataBytes = 0;
+    m_file.setFileName(path);
+    if (!m_file.open(QIODevice::WriteOnly))
+        return false;
+    m_file.write(QByteArray(44, '\0'));   // 先占位 44 字节头
+    return true;
+}
+
+bool WavStreamWriter::append(const std::vector<float>& pcm)
+{
+    if (!m_file.isOpen())
+        return false;
+    std::vector<int16_t> d(pcm.size());
+    for (size_t i = 0; i < pcm.size(); ++i)
+    {
+        int s = static_cast<int>(pcm[i] * 32767.0f);
+        s = std::clamp(s, -32768, 32767);
+        d[i] = static_cast<int16_t>(s);
+    }
+    m_file.write(reinterpret_cast<const char*>(d.data()), (qint64)d.size() * 2);
+    m_dataBytes += static_cast<quint32>(d.size() * 2);
+    return true;
+}
+
+bool WavStreamWriter::close()
+{
+    if (!m_file.isOpen())
+        return false;
+
+    m_file.seek(0);
+    const int dataSize = static_cast<int>(m_dataBytes);
+
+    m_file.write("RIFF", 4);
+    int chunkSize = 36 + dataSize;
+    m_file.write(reinterpret_cast<const char*>(&chunkSize), 4);
+    m_file.write("WAVE", 4);
+
+    m_file.write("fmt ", 4);
+    int subchunk1Size = 16;
+    m_file.write(reinterpret_cast<const char*>(&subchunk1Size), 4);
+
+    short audioFormat = 1;   // PCM
+    m_file.write(reinterpret_cast<const char*>(&audioFormat), 2);
+
+    short numChannels = static_cast<short>(m_channels);
+    m_file.write(reinterpret_cast<const char*>(&numChannels), 2);
+
+    int sr = m_sampleRate;
+    m_file.write(reinterpret_cast<const char*>(&sr), 4);
+
+    int byteRate = m_sampleRate * m_channels * 2;
+    m_file.write(reinterpret_cast<const char*>(&byteRate), 4);
+
+    short blockAlign = static_cast<short>(m_channels * 2);
+    m_file.write(reinterpret_cast<const char*>(&blockAlign), 2);
+
+    short bitsPerSample = 16;
+    m_file.write(reinterpret_cast<const char*>(&bitsPerSample), 2);
+
+    m_file.write("data", 4);
+    m_file.write(reinterpret_cast<const char*>(&dataSize), 4);
+
+    m_file.close();
+    return true;
+}
+
+// 分块流式：只算帧区间 [f0,f1) 的 STFT
+std::vector<AudioSeparator::STFTFrame> AudioSeparator::stftRange(
+    const std::vector<float>& pcm, int f0, int f1, int fftSize, int hopSize)
+{
+    std::vector<STFTFrame> frames;
+    if (f1 <= f0) return frames;
+
+    kiss_fft_cfg cfg = kiss_fft_alloc(fftSize, 0, nullptr, nullptr);
+    if (!cfg) return frames;
+
+    std::vector<float> window(fftSize);
+    for (int i = 0; i < fftSize; ++i)
+        window[i] = 0.54f - 0.46f * cos(2.0 * M_PI * i / (fftSize - 1));
+
+    int specSize = fftSize / 2 + 1;
+    std::vector<kiss_fft_cpx> in(fftSize);
+    std::vector<kiss_fft_cpx> out(fftSize);
+
+    frames.reserve((size_t)(f1 - f0));
+    for (int fi = f0; fi < f1; ++fi)
+    {
+        size_t start = (size_t)fi * hopSize;
+        if (start + fftSize > pcm.size()) break;
+        for (int j = 0; j < fftSize; ++j)
+        {
+            in[j].r = pcm[start + j] * window[j];
+            in[j].i = 0.0f;
+        }
+        kiss_fft(cfg, in.data(), out.data());
+        STFTFrame frame;
+        frame.spectrum.resize(specSize);
+        for (int k = 0; k < specSize; ++k)
+            frame.spectrum[k] = std::complex<float>(out[k].r, out[k].i);
+        frames.push_back(std::move(frame));
+    }
+    free(cfg);
+    return frames;
+}
+
+// 分块流式：只重建样本区间 [outBegin,outEnd) 的 ISTFT
+// frames[0] 对应全局帧号 frameOffset；输出与整首一次算完逐样本一致。
+std::vector<float> AudioSeparator::istftRange(
+    const std::vector<STFTFrame>& frames, int frameOffset,
+    int outBegin, int outEnd, int fftSize, int hopSize)
+{
+    std::vector<float> result;
+    if (outEnd <= outBegin || frames.empty()) return result;
+
+    kiss_fft_cfg cfg = kiss_fft_alloc(fftSize, 1, nullptr, nullptr);
+    if (!cfg) return result;
+
+    const int win = outEnd - outBegin;
+    std::vector<float> output(win, 0.0f);
+    std::vector<float> weight(win, 0.0f);
+
+    std::vector<float> window(fftSize);
+    for (int i = 0; i < fftSize; ++i)
+        window[i] = 0.54f - 0.46f * cos(2.0 * M_PI * i / (fftSize - 1));
+
+    int half = fftSize / 2;
+    std::vector<kiss_fft_cpx> in(fftSize);
+    std::vector<kiss_fft_cpx> out(fftSize);
+
+    for (size_t fi = 0; fi < frames.size(); ++fi)
+    {
+        const auto& spec = frames[fi].spectrum;
+        in[0].r = spec[0].real();
+        in[0].i = 0.0f;
+        for (int k = 1; k < half; ++k)
+        {
+            in[k].r = spec[k].real();
+            in[k].i = spec[k].imag();
+        }
+        if (fftSize % 2 == 0)
+        {
+            in[half].r = spec[half].real();
+            in[half].i = 0.0f;
+        }
+        for (int k = half + 1; k < fftSize; ++k)
+        {
+            int c = fftSize - k;
+            in[k].r = in[c].r;
+            in[k].i = -in[c].i;
+        }
+        kiss_fft(cfg, in.data(), out.data());
+
+        const int start = (frameOffset + (int)fi) * hopSize;
+        for (int n = 0; n < fftSize; ++n)
+        {
+            const int p = start + n;
+            if (p < outBegin || p >= outEnd) continue;
+            float s = out[n].r / fftSize;
+            s *= window[n];
+            output[p - outBegin] += s;
+            weight[p - outBegin] += window[n] * window[n];
+        }
+    }
+    for (int i = 0; i < win; ++i)
+    {
+        if (weight[i] > 1e-6f)
+            output[i] /= weight[i];
+    }
+    free(cfg);
+    return output;
 }
 
 bool AudioSeparator::decodeHRTF()
@@ -708,19 +796,18 @@ bool AudioSeparator::Surrounding(const QString& filePath)
     }
     if (m_task) return false;
 
-    emit surroundfished();
-
     return writeWav(outpath.toStdString(), output, 44100, 2);
 }
 
 bool AudioSeparator::doubleEarListening(const QString& leftPath, const QString& rightPath, const QString& Lname, const QString& Rname)
 {
-    loadlocalMusic loadMusic;
-
-    loadMusic.addMusic(rightPath);
-    loadMusic.addMusic(leftPath);
-
     QString folder = QCoreApplication::applicationDirPath() + "/[double]music/" + Lname + "+" + Rname;
+
+    WebgetCover* lweb = new WebgetCover();
+    WebgetCover* rweb = new WebgetCover();
+
+	getMusicInfo(leftPath,Lname ,lweb);
+	getMusicInfo(rightPath, Rname, rweb);
 
     QDir().mkpath(folder);
 
@@ -734,7 +821,6 @@ bool AudioSeparator::doubleEarListening(const QString& leftPath, const QString& 
 
         int sampleRate = 0;
 
-
         if (!decodeAudio(
             leftPath.toUtf8().toStdString(),
             stereo,
@@ -744,18 +830,15 @@ bool AudioSeparator::doubleEarListening(const QString& leftPath, const QString& 
             return false;
         }
 
-
         if (stereo.empty())
         {
             m_lastError = "Left audio empty";
             return false;
         }
 
-
         std::vector<float> leftStereo;
 
         leftStereo.reserve(stereo.size());
-
 
         for (size_t i = 0; i < stereo.size() / 2; i++)
         {
@@ -765,7 +848,6 @@ bool AudioSeparator::doubleEarListening(const QString& leftPath, const QString& 
             leftStereo.push_back(left);
             leftStereo.push_back(0.0f);
         }
-
 
         if (!writeWav(
             leftFile.toUtf8().toStdString(),
@@ -925,6 +1007,57 @@ void AudioSeparator::ProcessVirtualSource(const std::vector<float>& inputBlock, 
     }
 }
 
+void AudioSeparator::getMusicInfo(const QString& path, const QString& name, WebgetCover* web)
+{
+    QMediaPlayer* temp = new QMediaPlayer(this);
+
+    connect(web, &WebgetCover::coverReady, this, [name](const QString& src) {
+        const QString dst = QCoreApplication::applicationDirPath() + "/cover/" + name + ".jpg";
+        const QString srcCanonical = QFileInfo(src).canonicalFilePath();
+        if (srcCanonical.isEmpty() ||
+            srcCanonical.compare(QFileInfo(dst).canonicalFilePath(), Qt::CaseInsensitive) == 0)
+            return;
+        QFile::remove(dst);
+        if (!QFile::rename(src, dst))
+            qDebug() << "[cover rename failed]" << src << "->" << dst;
+        });
+
+    connect(web, &WebgetCover::lyricReady, this, [name](const QString& src) {
+        const QString dst = QCoreApplication::applicationDirPath() + "/lrc/" + name + ".lrc";
+        const QString srcCanonical = QFileInfo(src).canonicalFilePath();
+        if (srcCanonical.isEmpty() ||
+            srcCanonical.compare(QFileInfo(dst).canonicalFilePath(), Qt::CaseInsensitive) == 0)
+            return;
+        QFile::remove(dst);
+        if (!QFile::rename(src, dst))
+            qDebug() << "[lyric rename failed]" << src << "->" << dst;
+        });
+
+    connect(temp, &QMediaPlayer::metaDataChanged, this,
+        [this, path, temp,web]()
+        {
+            auto meta = temp->metaData();
+            QString title = meta.value(QMediaMetaData::Title).toString().trimmed();
+            QString artist = meta.value(QMediaMetaData::ContributingArtist).toString().trimmed();
+            if (artist.isEmpty())
+                artist = meta.value(QMediaMetaData::Author).toString().trimmed();
+
+            if (title.isEmpty() && artist.isEmpty())
+            {
+                temp->deleteLater();
+                return;
+            }
+            
+            float targetDuration = temp->duration() / 1000.0;
+            web->searchMusicInfo(title, artist, targetDuration);
+
+            temp->disconnect(this);
+            temp->deleteLater();
+        });
+
+    temp->setSource(QUrl::fromLocalFile(path));
+}
+
 void AudioSeparator::cancelTask()
 {
     m_task.store(true);
@@ -932,41 +1065,7 @@ void AudioSeparator::cancelTask()
     emit separateProgress(0);
 }
 
-bool AudioSeparator::LoadIR(int elevation, float azimuth, std::vector<float>& leftIR, std::vector<float>& rightIR)
-{
-    HRTFData* h1;
-    HRTFData* h2;
-
-    float alpha;
-
-    if (!FindTwoNearestHRIR(
-        elevation,
-        azimuth,
-        h1,
-        h2,
-        alpha))
-    {
-        return false;
-    }
-
-    leftIR.resize(h1->leftIR.size());
-    rightIR.resize(h1->rightIR.size());
-
-    for (size_t i = 0; i < leftIR.size(); i++)
-    {
-        leftIR[i] =
-            h1->leftIR[i] * (1.0f - alpha) +
-            h2->leftIR[i] * alpha;
-
-        rightIR[i] =
-            h1->rightIR[i] * (1.0f - alpha) +
-            h2->rightIR[i] * alpha;
-    }
-
-    return true;
-}
-
-bool AudioSeparator::separate(const std::string& inputFile) 
+bool AudioSeparator::separate(const std::string& inputFile)
 {
     m_task.store(false);
     emit sendtaskName(QFileInfo(QString::fromStdString(inputFile)).completeBaseName());
@@ -975,7 +1074,7 @@ bool AudioSeparator::separate(const std::string& inputFile)
     std::vector<float> stereoPcm;
     int sampleRate = 0;
     if (!decodeAudio(inputFile, stereoPcm, sampleRate)) return false;
-    if (stereoPcm.empty()) 
+    if (stereoPcm.empty())
     {
         m_lastError = "No audio data";
         return false;
@@ -987,30 +1086,32 @@ bool AudioSeparator::separate(const std::string& inputFile)
     std::vector<float> leftPcm, rightPcm;
     leftPcm.reserve(stereoPcm.size() / 2);
     rightPcm.reserve(stereoPcm.size() / 2);
-    for (size_t i = 0; i < stereoPcm.size() / 2; ++i) 
+    for (size_t i = 0; i < stereoPcm.size() / 2; ++i)
     {
         leftPcm.push_back(stereoPcm[2 * i]);
         rightPcm.push_back(stereoPcm[2 * i + 1]);
     }
 
+    std::vector<float>().swap(stereoPcm);
+
     if (m_task) return false;
     qDebug() << "开始STFT";
-    // STFT
-    int fftSize = 6144;
-    int hopSize = 1024;
-    auto leftFrames = stft(leftPcm, fftSize, hopSize);
-    auto rightFrames = stft(rightPcm, fftSize, hopSize);
-    if (leftFrames.empty() || rightFrames.empty()) 
-    {
-        m_lastError = "STFT failed";
-        return false;
-    }
 
-    int totalFrames = (int)leftFrames.size();
-    int srcBins = (int)leftFrames[0].spectrum.size(); // 3073
+    // 常量
+    const int fftSize = 6144;
+    const int hopSize = 1024;
     const int patchFrames = 256;
     const int patchHop = 128;
     const int targetBins = 3072;
+    const int srcBins = fftSize / 2 + 1;          // 3073
+    const int istftCtx = fftSize / hopSize - 1;   // 5
+
+    // 整首歌的帧数（与旧 stft() 逐帧一致）
+    int totalFrames = 0;
+    if ((int)leftPcm.size() >= fftSize)
+        totalFrames = (int)((leftPcm.size() - fftSize) / hopSize) + 1;
+    if ((int)rightPcm.size() >= fftSize)
+        totalFrames = std::min(totalFrames, (int)((rightPcm.size() - fftSize) / hopSize) + 1);
 
     if (totalFrames < patchFrames)
     {
@@ -1018,291 +1119,378 @@ bool AudioSeparator::separate(const std::string& inputFile)
         return false;
     }
 
-    if (m_task) return false;
+    const int totalOut = (totalFrames - 1) * hopSize + fftSize;
 
-    // 累加器
-    std::vector<std::complex<float>> leftSpecAcc(srcBins * totalFrames, 0.0f);
-    std::vector<std::complex<float>> rightSpecAcc(srcBins * totalFrames, 0.0f);
-    std::vector<int> specCount(srcBins * totalFrames, 0);
+    // 块长：约 30 秒，按 patchHop 对齐
+    int chunkFrames = (int)((double)(30 * sampleRate) / hopSize);
+    chunkFrames = (chunkFrames / patchHop) * patchHop;
+    if (chunkFrames < patchFrames) chunkFrames = patchFrames;
 
-    Ort::Session* session = static_cast<Ort::Session*>(m_session);
-    Ort::MemoryInfo* memInfo = static_cast<Ort::MemoryInfo*>(m_memInfo);
+    const int jMax = (totalFrames - patchFrames) / patchHop;
 
-    static int lastProgress = -1;
-
-    std::vector<float> inputTensor;
-    const int patchSize = targetBins * patchFrames;
-
-    std::vector<std::complex<float>> leftPatch(patchSize);
-    std::vector<std::complex<float>> rightPatch(patchSize);
-
-    if (m_task) return false;
-
-    for (int start = 0; start + patchFrames <= totalFrames; start += patchHop)
-    {
-        if (m_task) return false;
-        buildInputTensor(leftFrames, rightFrames, start, inputTensor);
-
-        std::vector<int64_t> inputShape = { 1, 4, targetBins, patchFrames };
-        Ort::Value inputValue = Ort::Value::CreateTensor<float>(
-            *memInfo, inputTensor.data(), inputTensor.size(),
-            inputShape.data(), inputShape.size());
-        const char* inputNames[] = { m_inputName.c_str() };
-        const char* outputNames[] = { m_outputName.c_str() };
-        auto outputs = session->Run(Ort::RunOptions(), inputNames, &inputValue, 1, outputNames, 1);
-
-        float* ptr = outputs[0].GetTensorMutableData<float>();
-        size_t count = outputs[0].GetTensorTypeAndShapeInfo().GetElementCount();
-        std::vector<float> outputSpectrum(ptr, ptr + count);
-
-        for (int i = 0; i < patchSize; ++i) 
-        {
-            leftPatch[i] = std::complex<float>(outputSpectrum[0 * patchSize + i],
-                outputSpectrum[1 * patchSize + i]);
-            rightPatch[i] = std::complex<float>(outputSpectrum[2 * patchSize + i],
-                outputSpectrum[3 * patchSize + i]);
-        }
-
-        // 官方补零扩展
-        std::vector<std::complex<float>> leftFrame(targetBins);
-        std::vector<std::complex<float>> rightFrame(targetBins);    
-        std::vector<std::complex<float>> leftExtended(srcBins, 0);
-        std::vector<std::complex<float>> rightExtended(srcBins, 0); 
-        if (m_task) return false;
-        for (int t = 0; t < patchFrames; ++t) 
-        {
-            for (int f = 0; f < targetBins; ++f) 
-            {
-                leftFrame[f] = leftPatch[f * patchFrames + t];
-                rightFrame[f] = rightPatch[f * patchFrames + t];
-            }
-            if (m_task) return false;
-            std::copy(leftFrame.begin(), leftFrame.end(), leftExtended.begin());
-            std::copy(rightFrame.begin(), rightFrame.end(), rightExtended.begin());
-
-            std::fill(leftExtended.begin() + targetBins, leftExtended.end(), std::complex<float>(0.0f, 0.0f));
-            std::fill(rightExtended.begin() + targetBins, rightExtended.end(), std::complex<float>(0.0f, 0.0f));
-
-            int globalT = start + t;
-            if (globalT >= totalFrames) break;
-            
-            if (m_task) return false;
-            
-            for (int f = 0; f < srcBins; ++f) 
-            {
-                int idx = globalT * srcBins + f;
-
-                leftSpecAcc[idx] += leftExtended[f];
-                rightSpecAcc[idx] += rightExtended[f];
-                specCount[idx]++;
-            }
-        }
-        //进度条
-        int progress = static_cast<int>(std::min(100.0, 100.0 * (start + patchFrames) / totalFrames));
-
-        if (progress != lastProgress)
-        {
-            lastProgress = progress;
-            emit separateProgress(progress);
-        }
-        if (m_task) return false;
-    }
-    
-    if (m_task) return false;
-    
-    // 平均得到频谱
-    std::vector<STFTFrame> leftOutFrames(totalFrames);
-    std::vector<STFTFrame> rightOutFrames(totalFrames);        
-    for (int t = 0; t < totalFrames; ++t)
-    {
-        if (m_task) return false;
-        leftOutFrames[t].spectrum.resize(srcBins);
-        rightOutFrames[t].spectrum.resize(srcBins);
-    }
-    for (int t = 0; t < totalFrames; ++t) 
-    {
-        if (m_task) return false;
-        for (int f = 0; f < srcBins; ++f) 
-        {
-            if (m_task) return false;
-            int idx = t * srcBins + f;
-            if (specCount[idx] > 0) 
-            {
-                leftOutFrames[t].spectrum[f] = leftSpecAcc[idx] / (float)specCount[idx];
-                rightOutFrames[t].spectrum[f] = rightSpecAcc[idx] / (float)specCount[idx];
-            }
-            else 
-            {
-                leftOutFrames[t].spectrum[f] = 0.0f;
-                rightOutFrames[t].spectrum[f] = 0.0f;
-            }
-            if (m_task) return false;
-        }
-        if (m_task) return false;
-    }
-    std::vector<STFTFrame> leftCopy = leftOutFrames;
-    std::vector<STFTFrame> rightCopy = rightOutFrames;
-
-    //伴奏容器
-    std::vector<STFTFrame> leftAccompFrames(totalFrames);
-    std::vector<STFTFrame> rightAccompFrames(totalFrames);
-    if (m_task) return false;
-    for (int i = 0; i < totalFrames; i++)
-    {
-        leftAccompFrames[i].spectrum.resize(srcBins);
-        rightAccompFrames[i].spectrum.resize(srcBins);
-        for (int j = 0; j < srcBins; j++)
-        {
-            std::complex<float> leftVal = leftFrames[i].spectrum[j];
-            std::complex<float> rightVal = rightFrames[i].spectrum[j];
-
-            leftAccompFrames[i].spectrum[j] = leftVal - leftCopy[i].spectrum[j];
-            rightAccompFrames[i].spectrum[j] = rightVal - rightCopy[i].spectrum[j];
-        }
-    }
-    if (m_task) return false;
-    // 增强降噪处理 
-    // 估算噪声谱：取前 5 帧的平均幅度
-    const int noiseFrames = std::min(5, totalFrames / 2);
-    std::vector<float> noiseMagL(srcBins, 0.0f);
-    std::vector<float> noiseMagR(srcBins, 0.0f);
-    for (int f = 0; f < srcBins; ++f) 
-    {
-        float sumL = 0.0f, sumR = 0.0f;
-        for (int t = 0; t < noiseFrames; ++t) 
-        {
-            sumL += std::abs(leftOutFrames[t].spectrum[f]);
-            sumR += std::abs(rightOutFrames[t].spectrum[f]);
-        }
-        noiseMagL[f] = sumL / noiseFrames;
-        noiseMagR[f] = sumR / noiseFrames;
-    }
-    if (m_task) return false;
-    // 谱减法 + 软阈值
-    float alpha = 1.9f;      // 谱减法过减因子
-    float beta = 0.005f;      // 谱底噪声保留系数
-    float thresholdRatio = 0.1f;   // 软阈值系数
-    float attenuation = 0.2f;      // 软阈值衰减系数
-
-    // 先计算全局平均幅度（用于软阈值）
-    double totalMag = 0.0;
-    int totalCells = srcBins * totalFrames;
-    for (int t = 0; t < totalFrames; ++t) 
-    {
-        for (int f = 0; f < srcBins; ++f) 
-        {
-            totalMag += std::abs(leftOutFrames[t].spectrum[f]);
-            totalMag += std::abs(rightOutFrames[t].spectrum[f]);
-        }
-    }
-    float globalAvgMag = (float)(totalMag / (2.0 * totalCells));
-
-    for (int t = 0; t < totalFrames; ++t) 
-    {
-        if (m_task) return false;
-        for (int f = 0; f < srcBins; ++f) 
-        {
-            if (m_task) return false;
-            // 谱减法：估计信号幅度 = max(当前幅度 - alpha * 噪声幅度, beta * 噪声幅度)
-            float magL = std::abs(leftOutFrames[t].spectrum[f]);
-            float magR = std::abs(rightOutFrames[t].spectrum[f]);
-            float newMagL = std::max(magL - alpha * noiseMagL[f], beta * noiseMagL[f]);
-            float newMagR = std::max(magR - alpha * noiseMagR[f], beta * noiseMagR[f]);
-            // 保持相位不变，缩放复数
-            if (magL > 1e-6f) 
-            {
-                leftOutFrames[t].spectrum[f] *= (newMagL / magL);
-            }
-            if (magR > 1e-6f) 
-            {
-                rightOutFrames[t].spectrum[f] *= (newMagR / magR);
-            }
-
-            // 软阈值：进一步抑制极低幅度的残留噪声
-            float finalMagL = std::abs(leftOutFrames[t].spectrum[f]);
-            float finalMagR = std::abs(rightOutFrames[t].spectrum[f]);
-            if (finalMagL < globalAvgMag * thresholdRatio) 
-            {
-                leftOutFrames[t].spectrum[f] *= attenuation;
-            }
-            if (finalMagR < globalAvgMag * thresholdRatio) 
-            {
-                rightOutFrames[t].spectrum[f] *= attenuation;
-            }
-        }
-    }
-    if (m_task) return false;
-    // 高通滤波减少低频嗡声
-    float cutoffFreq = 250.0f;   // Hz，可调整
-    for (int t = 0; t < totalFrames; ++t) 
-    {
-        for (int f = 0; f < srcBins; ++f) 
-        {
-            float freq = (float)f * 44100.0f / fftSize;
-            if (freq < cutoffFreq) 
-            {
-                // 平滑衰减，避免突变
-                float gain = std::pow(freq / cutoffFreq, 2.0f);
-                leftOutFrames[t].spectrum[f] *= gain;
-                rightOutFrames[t].spectrum[f] *= gain;
-            }
-        }
-    }
-    if (m_task) return false;
-    // ISTFT
-    auto leftPcmOut = istft(leftOutFrames, fftSize, hopSize);
-    auto rightPcmOut = istft(rightOutFrames, fftSize, hopSize);
-
-    auto leftAccompPcmOut = istft(leftAccompFrames, fftSize, hopSize);
-    auto rightAccompPcmOut = istft(rightAccompFrames, fftSize, hopSize);
-
-    if (leftPcmOut.empty() || rightPcmOut.empty()) 
-    {
-        m_lastError = "ISTFT failed";
-        return false;
-    }
-    if (m_task) return false;
-    // 合并立体声
-    std::vector<float> stereoOut;
-    std::vector<float> stereoAccompOut;
-    stereoOut.reserve(leftPcmOut.size() * 2);
-    stereoAccompOut.reserve(leftPcmOut.size() * 2);
-    for (size_t i = 0; i < leftPcmOut.size(); ++i) 
-    {
-        stereoOut.push_back(leftPcmOut[i]);
-        stereoOut.push_back(rightPcmOut[i]);
-        stereoAccompOut.push_back(leftAccompPcmOut[i]);
-        stereoAccompOut.push_back(rightAccompPcmOut[i]);
-    }
-    if (m_task) return false;
-    // 音量归一化：提升到目标峰值并限幅
-    float maxAbs = 0.0f;
-    for (float s : stereoOut) maxAbs = std::max(maxAbs, std::fabs(s));
-    if (maxAbs > 0.0f) 
-    {
-        float targetPeak = 0.98f;   // 提高音量
-        float gain = targetPeak / maxAbs;
-        for (float& s : stereoOut) s *= gain;
-    }
-    // 限幅防止削波
-    for (float& s : stereoOut) 
-    {
-        if (s > 1.0f) s = 1.0f;
-        if (s < -1.0f) s = -1.0f;
-    }
-
-    QString humanVoiceFile = QCoreApplication::applicationDirPath() + "/pureHumanVoice/" 
+    // 输出与临时文件
+    QString humanVoiceFile = QCoreApplication::applicationDirPath() + "/pureHumanVoice/"
         + QFileInfo(QString::fromStdString(inputFile)).fileName();
     QString accompFile = QCoreApplication::applicationDirPath() + "/pureAccompaniment/"
         + QFileInfo(QString::fromStdString(inputFile)).fileName();
     QDir().mkdir(QCoreApplication::applicationDirPath() + "/pureHumanVoice");
     QDir().mkdir(QCoreApplication::applicationDirPath() + "/pureAccompaniment");
-    if (m_task) return false;
 
-    emit separatefished();
+    // 人声谱落临时文件，第二遍读回（保证与整首一次算完逐字节一致）
+    QString tmpDir = QCoreApplication::applicationDirPath() + "/tmp";
+    QDir().mkdir(tmpDir);
+    QString tmpVoiceSpec = tmpDir + "/"
+        + QFileInfo(QString::fromStdString(inputFile)).completeBaseName() + ".voicespec";
 
-    bool f = writeWav(humanVoiceFile.toUtf8().toStdString(), stereoOut, sampleRate, 2)
-        && writeWav(accompFile.toUtf8().toStdString(), stereoAccompOut, sampleRate, 2);
+    QFile specFile(tmpVoiceSpec);
+    if (!specFile.open(QIODevice::ReadWrite | QIODevice::Truncate))
+    {
+        m_lastError = "无法创建临时谱文件";
+        return false;
+    }
+
+    Ort::Session* session = static_cast<Ort::Session*>(m_session);
+    Ort::MemoryInfo* memInfo = static_cast<Ort::MemoryInfo*>(m_memInfo);
+
+    int lastProgress = -1;
+    auto report = [&](int v)
+    {
+        if (v != lastProgress)
+        {
+            lastProgress = v;
+            emit separateProgress(v);
+        }
+    };
+
+    WavStreamWriter accompWriter;
+    if (!accompWriter.open(accompFile, sampleRate, 2))
+    {
+        specFile.close();
+        QFile::remove(tmpVoiceSpec);
+        m_lastError = "无法写入伴奏文件";
+        return false;
+    }
+
+    const int patchSize = targetBins * patchFrames;
+    std::vector<float> inputTensor;
+
+    double magSum = 0.0;
+    const int noiseFrames = std::min(5, totalFrames / 2);
+    std::vector<float> noiseMagL, noiseMagR;
+    bool failed = false;
+
+    // 第一遍：分块 STFT + ONNX + 平均 → 伴奏落盘 / 人声谱落盘 / 全局统计
+    for (int C0 = 0; C0 < totalFrames && !failed; C0 += chunkFrames)
+    {
+        if (m_task) { failed = true; break; }
+
+        const int C1 = std::min(C0 + chunkFrames, totalFrames);
+        const int U0 = std::max(0, C0 - istftCtx);   // 需要完整覆盖的帧区间（含 ISTFT 左上下文）
+        const int U1 = C1;
+        const int Uc = U1 - U0;
+
+        const int jLo = std::max(0, (U0 / patchHop) - 1);
+        const int jHi = std::min((U1 - 1) / patchHop, jMax);
+
+        const int Fs = std::min(U0, jLo * patchHop);
+        int Fe = std::max(U1, jHi * patchHop + patchFrames);
+        if (Fe > totalFrames) Fe = totalFrames;
+
+        auto chunkL = stftRange(leftPcm, Fs, Fe, fftSize, hopSize);
+        auto chunkR = stftRange(rightPcm, Fs, Fe, fftSize, hopSize);
+        if ((int)chunkL.size() != Fe - Fs || (int)chunkR.size() != Fe - Fs)
+        {
+            m_lastError = "STFT failed";
+            failed = true;
+            break;
+        }
+
+        std::vector<std::complex<float>> accL((size_t)srcBins * Uc, 0.0f);
+        std::vector<std::complex<float>> accR((size_t)srcBins * Uc, 0.0f);
+        std::vector<uint8_t> cnt((size_t)srcBins * Uc, 0);
+
+        for (int j = jLo; j <= jHi; ++j)
+        {
+            if (m_task) { failed = true; break; }
+
+            const int start = j * patchHop;
+            buildInputTensor(chunkL, chunkR, start - Fs, inputTensor);
+
+            std::vector<int64_t> inputShape = { 1, 4, targetBins, patchFrames };
+            Ort::Value inputValue = Ort::Value::CreateTensor<float>(
+                *memInfo, inputTensor.data(), inputTensor.size(),
+                inputShape.data(), inputShape.size());
+            const char* inputNames[] = { m_inputName.c_str() };
+            const char* outputNames[] = { m_outputName.c_str() };
+            auto outputs = session->Run(Ort::RunOptions(), inputNames, &inputValue, 1, outputNames, 1);
+
+            float* ptr = outputs[0].GetTensorMutableData<float>();
+            size_t count = outputs[0].GetTensorTypeAndShapeInfo().GetElementCount();
+            std::vector<float> outputSpectrum(ptr, ptr + count);
+
+            for (int t = 0; t < patchFrames; ++t)
+            {
+                const int gT = start + t;
+                if (gT < U0 || gT >= U1) continue;
+                const int li = gT - U0;
+                for (int f = 0; f < targetBins; ++f)
+                {
+                    const int pi = f * patchFrames + t;
+                    const int idx = li * srcBins + f;
+                    accL[idx] += std::complex<float>(outputSpectrum[0 * patchSize + pi],
+                        outputSpectrum[1 * patchSize + pi]);
+                    accR[idx] += std::complex<float>(outputSpectrum[2 * patchSize + pi],
+                        outputSpectrum[3 * patchSize + pi]);
+                    cnt[idx]++;
+                }
+                // 第 3073 个 bin（Nyquist）保持 0，计数与原实现一致
+                cnt[li * srcBins + targetBins]++;
+            }
+        }
+        if (failed) break;
+
+        // 平均 → 本块人声谱
+        std::vector<STFTFrame> outL(Uc), outR(Uc);
+        for (int t = 0; t < Uc; ++t)
+        {
+            outL[t].spectrum.resize(srcBins);
+            outR[t].spectrum.resize(srcBins);
+            for (int f = 0; f < srcBins; ++f)
+            {
+                const int idx = t * srcBins + f;
+                if (cnt[idx] > 0)
+                {
+                    outL[t].spectrum[f] = accL[idx] / (float)cnt[idx];
+                    outR[t].spectrum[f] = accR[idx] / (float)cnt[idx];
+                }
+                else
+                {
+                    outL[t].spectrum[f] = 0.0f;
+                    outR[t].spectrum[f] = 0.0f;
+                }
+            }
+        }
+        std::vector<std::complex<float>>().swap(accL);
+        std::vector<std::complex<float>>().swap(accR);
+        std::vector<uint8_t>().swap(cnt);
+
+        // 伴奏 = 原谱 − 人声谱（就地写回 chunkL/chunkR，省一份容器）
+        const int off = U0 - Fs;
+        for (int t = 0; t < Uc; ++t)
+        {
+            auto& dL = chunkL[off + t].spectrum;
+            auto& dR = chunkR[off + t].spectrum;
+            const auto& vL = outL[t].spectrum;
+            const auto& vR = outR[t].spectrum;
+            for (int f = 0; f < srcBins; ++f)
+            {
+                dL[f] -= vL[f];
+                dR[f] -= vR[f];
+            }
+        }
+
+        // 伴奏 ISTFT → 追加落盘（伴奏不参与归一化，此刻即可定稿）
+        const int oS = C0 * hopSize;
+        const int oE = (C1 == totalFrames) ? totalOut : (C1 * hopSize);
+        auto accompPcmL = istftRange(chunkL, Fs, oS, oE, fftSize, hopSize);
+        auto accompPcmR = istftRange(chunkR, Fs, oS, oE, fftSize, hopSize);
+        std::vector<float> interleaved((size_t)(oE - oS) * 2);
+        for (size_t i = 0; i < accompPcmL.size(); ++i)
+        {
+            interleaved[2 * i] = accompPcmL[i];
+            interleaved[2 * i + 1] = accompPcmR[i];
+        }
+        if (!accompWriter.append(interleaved))
+        {
+            m_lastError = "伴奏写入失败";
+            failed = true;
+            break;
+        }
+        std::vector<float>().swap(accompPcmL);
+        std::vector<float>().swap(accompPcmR);
+        std::vector<float>().swap(interleaved);
+        std::vector<AudioSeparator::STFTFrame>().swap(chunkL);
+        std::vector<AudioSeparator::STFTFrame>().swap(chunkR);
+
+        // 累加全局平均幅度（只统计 [C0,C1)，保证每帧只计一次，求和次序与原实现一致）
+        for (int t = C0; t < C1; ++t)
+        {
+            const auto& sL = outL[t - U0].spectrum;
+            const auto& sR = outR[t - U0].spectrum;
+            for (int f = 0; f < srcBins; ++f)
+            {
+                magSum += std::abs(sL[f]);
+                magSum += std::abs(sR[f]);
+            }
+        }
+
+        // 第 1 块顺手取噪声谱（原 :1224-1237）
+        if (C0 == 0)
+        {
+            noiseMagL.assign(srcBins, 0.0f);
+            noiseMagR.assign(srcBins, 0.0f);
+            for (int f = 0; f < srcBins; ++f)
+            {
+                float sumL = 0.0f, sumR = 0.0f;
+                for (int t = 0; t < noiseFrames; ++t)
+                {
+                    sumL += std::abs(outL[t].spectrum[f]);
+                    sumR += std::abs(outR[t].spectrum[f]);
+                }
+                noiseMagL[f] = sumL / noiseFrames;
+                noiseMagR[f] = sumR / noiseFrames;
+            }
+        }
+
+        // 人声谱顺序落盘（每帧先左后右）
+        {
+            std::vector<std::complex<float>> buf;
+            buf.resize((size_t)(C1 - C0) * 2 * srcBins);
+            for (int t = C0; t < C1; ++t)
+            {
+                const int li = t - U0;
+                std::copy(outL[li].spectrum.begin(), outL[li].spectrum.end(),
+                    buf.begin() + (size_t)(t - C0) * 2 * srcBins);
+                std::copy(outR[li].spectrum.begin(), outR[li].spectrum.end(),
+                    buf.begin() + ((size_t)(t - C0) * 2 + 1) * srcBins);
+            }
+            if (specFile.write(reinterpret_cast<const char*>(buf.data()),
+                    (qint64)buf.size() * (qint64)sizeof(std::complex<float>)) < 0)
+            {
+                m_lastError = "临时谱写入失败";
+                failed = true;
+                break;
+            }
+        }
+
+        report((int)(60.0 * C1 / totalFrames));
+    }
+
+    if (!failed && m_task) failed = true;
+
+    if (failed)
+    {
+        accompWriter.close();
+        specFile.close();
+        QFile::remove(tmpVoiceSpec);
+        return false;
+    }
+
+    accompWriter.close();
+    specFile.flush();
+
+    const float globalAvgMag = (float)(magSum / (2.0 * (double)srcBins * (double)totalFrames));
+
+    // 源 PCM 在第一遍后不再需要
+    std::vector<float>().swap(leftPcm);
+    std::vector<float>().swap(rightPcm);
+
+    // 第二遍：读回人声谱 → 谱减/软阈值/高通 → ISTFT → 拼整首
+    std::vector<float> stereoOut((size_t)totalOut * 2, 0.0f);
+
+    const float specAlpha = 1.9f;      // 谱减法过减因子
+    const float specBeta = 0.005f;     // 谱底噪声保留系数
+    const float thresholdRatio = 0.1f; // 软阈值系数
+    const float attenuation = 0.2f;    // 软阈值衰减系数
+    const float cutoffFreq = 250.0f;   // 高通截止频率
+    const qint64 frameBytes = (qint64)2 * srcBins * (qint64)sizeof(std::complex<float>);
+
+    for (int C0 = 0; C0 < totalFrames && !failed; C0 += chunkFrames)
+    {
+        if (m_task) { failed = true; break; }
+
+        const int C1 = std::min(C0 + chunkFrames, totalFrames);
+        const int U0 = std::max(0, C0 - istftCtx);
+        const int U1 = C1;
+        const int Uc = U1 - U0;
+
+        specFile.seek((qint64)U0 * frameBytes);
+        std::vector<std::complex<float>> buf((size_t)Uc * 2 * srcBins);
+        const qint64 want = (qint64)buf.size() * (qint64)sizeof(std::complex<float>);
+        if (specFile.read(reinterpret_cast<char*>(buf.data()), want) != want)
+        {
+            m_lastError = "临时谱读取失败";
+            failed = true;
+            break;
+        }
+
+        std::vector<STFTFrame> outL(Uc), outR(Uc);
+        for (int t = 0; t < Uc; ++t)
+        {
+            outL[t].spectrum.resize(srcBins);
+            outR[t].spectrum.resize(srcBins);
+            std::copy(buf.begin() + (size_t)t * 2 * srcBins,
+                buf.begin() + (size_t)t * 2 * srcBins + srcBins,
+                outL[t].spectrum.begin());
+            std::copy(buf.begin() + ((size_t)t * 2 + 1) * srcBins,
+                buf.begin() + ((size_t)t * 2 + 2) * srcBins,
+                outR[t].spectrum.begin());
+        }
+        std::vector<std::complex<float>>().swap(buf);
+
+        // 谱减 + 软阈值 + 高通（逐格独立，合并为一趟，与原分两趟等价）
+        for (int t = 0; t < Uc; ++t)
+        {
+            auto& sL = outL[t].spectrum;
+            auto& sR = outR[t].spectrum;
+            for (int f = 0; f < srcBins; ++f)
+            {
+                const float magL = std::abs(sL[f]);
+                const float magR = std::abs(sR[f]);
+                const float newMagL = std::max(magL - specAlpha * noiseMagL[f], specBeta * noiseMagL[f]);
+                const float newMagR = std::max(magR - specAlpha * noiseMagR[f], specBeta * noiseMagR[f]);
+                if (magL > 1e-6f) sL[f] *= (newMagL / magL);
+                if (magR > 1e-6f) sR[f] *= (newMagR / magR);
+
+                const float fMagL = std::abs(sL[f]);
+                const float fMagR = std::abs(sR[f]);
+                if (fMagL < globalAvgMag * thresholdRatio) sL[f] *= attenuation;
+                if (fMagR < globalAvgMag * thresholdRatio) sR[f] *= attenuation;
+
+                const float freq = (float)f * 44100.0f / fftSize;
+                if (freq < cutoffFreq)
+                {
+                    const float gain = std::pow(freq / cutoffFreq, 2.0f);
+                    sL[f] *= gain;
+                    sR[f] *= gain;
+                }
+            }
+        }
+
+        const int oS = C0 * hopSize;
+        const int oE = (C1 == totalFrames) ? totalOut : (C1 * hopSize);
+        auto pcmL = istftRange(outL, U0, oS, oE, fftSize, hopSize);
+        auto pcmR = istftRange(outR, U0, oS, oE, fftSize, hopSize);
+        for (int i = 0; i < oE - oS; ++i)
+        {
+            stereoOut[(size_t)2 * (oS + i)] = pcmL[i];
+            stereoOut[(size_t)2 * (oS + i) + 1] = pcmR[i];
+        }
+
+        report(60 + (int)(35.0 * C1 / totalFrames));
+    }
+
+    specFile.close();
+    QFile::remove(tmpVoiceSpec);
+
+    if (failed || m_task) return false;
+
+    // 归一化
+    float maxAbs = 0.0f;
+    for (float s : stereoOut) maxAbs = std::max(maxAbs, std::fabs(s));
+    if (maxAbs > 0.0f)
+    {
+        const float targetPeak = 0.98f;
+        const float gain = targetPeak / maxAbs;
+        for (float& s : stereoOut) s *= gain;
+    }
+    for (float& s : stereoOut)
+    {
+        if (s > 1.0f) s = 1.0f;
+        if (s < -1.0f) s = -1.0f;
+    }
+
+    bool f = writeWav(humanVoiceFile.toUtf8().toStdString(), stereoOut, sampleRate, 2);
     emit separateProgress(100);
 
     QTimer::singleShot(1500, this, [this]()
@@ -1388,3 +1576,4 @@ bool AudioSeparator::FindTwoNearestHRIR(int elevation, float azimuth, HRTFData*&
 
     return true;
 }
+

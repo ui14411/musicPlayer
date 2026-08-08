@@ -6,7 +6,7 @@ Rectangle {
     
     // ✅ 接收 main.qml 传入的 StackView
     property var stack: null
-    
+
     property int progress: 0
     property bool finished: false
     

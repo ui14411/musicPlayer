@@ -1,492 +1,607 @@
-﻿import QtQuick
+import QtQuick
 import QtQuick.Controls
-import QtMultimedia
 import Qt5Compat.GraphicalEffects
+import nusicvideoqml
 
+// 双耳页：10 套布局（d1 - d10）
+// 背景固定 = 首页选好的静态图 player.bgPath 模糊 + 极慢推近（和 PlayDouble.qml 一致）
 Item
 {
-    anchors.fill: parent
+    id: dblRoot
+
+    property var stack
+    objectName: "doublePage"
+
+    readonly property int v: Theme.d
+    readonly property var g: lay()
 
     property int leftLrcIndex: -1
     property int rightLrcIndex: -1
 
-    // ===== 自适应尺寸 =====
-    property real baseUnit: Math.min(width, height)
-    property real coverSize: Math.max(150, Math.min(280, baseUnit * 0.36))
-    property real playerColWidth: coverSize + baseUnit * 0.05
-    property real lrcColWidth: Math.max(140, Math.min(300, width * 0.2))
-    property real lrcHeight: Math.max(320, Math.min(520, height * 0.72))
-    property real mainSpacing: Math.max(6, Math.min(20, width * 0.012))
-    property real colSpacing: Math.max(8, Math.min(15, baseUnit * 0.02))
-    property real volSliderWidth: Math.max(8, Math.min(12, baseUnit * 0.015))
-    property real titleFontSize: Math.max(16, Math.min(26, baseUnit * 0.033))
-    property real songFontSize: Math.max(14, Math.min(22, baseUnit * 0.028))
-    property real lrcHighlightFont: Math.max(16, Math.min(26, baseUnit * 0.032))
-    property real lrcNormalFont: Math.max(12, Math.min(20, baseUnit * 0.024))
-    property real timeFontSize: Math.max(10, Math.min(14, baseUnit * 0.016))
-
-    // 辅助函数：格式化时间（毫秒 -> mm:ss）
-    function formatTime(ms)
+    Component.onCompleted:
     {
-        if (ms <= 0) return "00:00"
-        var seconds = Math.floor(ms / 1000)
-        var minutes = Math.floor(seconds / 60)
-        seconds = seconds % 60
-        return (minutes < 10 ? "0" + minutes : minutes) + ":" + (seconds < 10 ? "0" + seconds : seconds)
+        stack = StackView.view
     }
 
-    // 辅助函数：歌词滚动
-    onLeftLrcIndexChanged:
+    // ===== 几何表 =====
+    function lay()
     {
-        if (leftLrcIndex >= 0)
-        {
-            leftListView.positionViewAtIndex(leftLrcIndex, ListView.Center)
+        var W = dst.width
+        var H = dst.height
+        var o = {
+            earL: { x: 0, y: 0, w: 0, h: 0 },
+            earR: { x: 0, y: 0, w: 0, h: 0 },
+            lrcL: { x: 0, y: 0, w: 0, h: 0 },
+            lrcR: { x: 0, y: 0, w: 0, h: 0 },
+            volL: { x: 0, y: 0, h: 0, show: true },
+            volR: { x: 0, y: 0, h: 0, show: true },
+            hub: false, hubX: 0, stamp: false, centerLine: false,
+            vert: true, square: false, tape: false, hideVol: false,
+            mono: false, serif: false,
+            coverPx: Math.min(150, H * 0.26, W * 0.13),
+            lrcPx: 14.5, namePx: 15, labelPx: 13, timePx: 11,
+            gap: 12, deco: [], fam: Theme.family
         }
-    }
 
-    onRightLrcIndexChanged:
-    {
-        if (rightLrcIndex >= 0)
+        // 六段一排：耳 | 音量 | 词 | 词 | 音量 | 耳
+        function flow6(gap, coverPx, cards)
         {
-            rightListView.positionViewAtIndex(rightLrcIndex, ListView.Center)
+            o.coverPx = coverPx
+            o.gap = gap
+            var colW = coverPx + 86
+            var volW = o.hideVol ? 0 : 30
+            var lrcW = Math.max(120, (W - 2 * colW - 2 * volW - 5 * gap) / 2)
+            var x = 0
+
+            o.earL.x = x; o.earL.y = 0; o.earL.w = colW; o.earL.h = H
+            if (cards) o.deco.push({ x: x, y: 0, w: colW, h: H })
+            x += colW + gap
+
+            if (!o.hideVol)
+            {
+                o.volL.x = x + 6; o.volL.y = H * 0.2; o.volL.h = H * 0.6; o.volL.show = true
+                x += volW + gap
+            }
+            o.lrcL.x = x; o.lrcL.y = 0; o.lrcL.w = lrcW; o.lrcL.h = H
+            if (cards) o.deco.push({ x: x, y: 0, w: lrcW, h: H })
+            x += lrcW + gap
+
+            o.lrcR.x = x; o.lrcR.y = 0; o.lrcR.w = lrcW; o.lrcR.h = H
+            if (cards) o.deco.push({ x: x, y: 0, w: lrcW, h: H })
+            x += lrcW + gap
+
+            if (!o.hideVol)
+            {
+                o.volR.x = x + 6; o.volR.y = H * 0.2; o.volR.h = H * 0.6; o.volR.show = true
+                x += volW + gap
+            }
+            o.earR.x = x; o.earR.y = 0; o.earR.w = colW; o.earR.h = H
+            if (cards) o.deco.push({ x: x, y: 0, w: colW, h: H })
         }
+
+        switch (v)
+        {
+        case 1: // 六段一排（他现在的排布，换成主题皮）
+            flow6(12, o.coverPx, false)
+            break
+
+        case 2: // 对称 + 中央枢纽
+            o.hub = true
+            flow6(14, o.coverPx, true)
+            break
+
+        case 3: // 每段独立玻璃卡
+            flow6(14, o.coverPx, true)
+            break
+
+        case 4: // 上下分区：上双列 / 下双词
+        {
+            o.vert = false
+            o.coverPx = Math.min(110, H * 0.2, W * 0.1)
+            var topH = Math.max(120, H * 0.34)
+            var half = (W - 24) / 2
+            o.earL.x = 0; o.earL.y = 0; o.earL.w = half - 40; o.earL.h = topH
+            o.earR.x = W - (half - 40); o.earR.y = 0; o.earR.w = half - 40; o.earR.h = topH
+            o.volL.show = true; o.volL.x = half - 34; o.volL.y = 12; o.volL.h = topH - 24
+            o.volR.show = true; o.volR.x = W - half + 4; o.volR.y = 12; o.volR.h = topH - 24
+            o.lrcL.x = 0; o.lrcL.y = topH + 16; o.lrcL.w = half - 8; o.lrcL.h = H - topH - 16
+            o.lrcR.x = half + 8; o.lrcR.y = topH + 16; o.lrcR.w = half - 8; o.lrcR.h = H - topH - 16
+            o.deco.push({ x: 0, y: 0, w: half - 20, h: topH })
+            o.deco.push({ x: W - half + 20, y: 0, w: half - 20, h: topH })
+            o.deco.push({ x: 0, y: topH + 16, w: half - 8, h: H - topH - 16 })
+            o.deco.push({ x: half + 8, y: topH + 16, w: half - 8, h: H - topH - 16 })
+            break
+        }
+
+        case 5: // 上封面（横排带环） / 下宽词
+        {
+            o.vert = false
+            o.hideVol = true
+            o.stamp = true
+            o.coverPx = Math.min(96, H * 0.16, W * 0.08)
+            var th = Math.max(140, H * 0.36)
+            var hw = (W - 16) / 2
+            o.earL.x = 0; o.earL.y = 0; o.earL.w = hw - 8; o.earL.h = th
+            o.earR.x = hw + 8; o.earR.y = 0; o.earR.w = hw - 8; o.earR.h = th
+            o.lrcL.x = 0; o.lrcL.y = th + 16; o.lrcL.w = hw - 8; o.lrcL.h = H - th - 16
+            o.lrcR.x = hw + 8; o.lrcR.y = th + 16; o.lrcR.w = hw - 8; o.lrcR.h = H - th - 16
+            o.deco.push({ x: 0, y: 0, w: hw - 8, h: th })
+            o.deco.push({ x: hw + 8, y: 0, w: hw - 8, h: th })
+            o.deco.push({ x: 0, y: th + 16, w: hw - 8, h: H - th - 16 })
+            o.deco.push({ x: hw + 8, y: th + 16, w: hw - 8, h: H - th - 16 })
+            break
+        }
+
+        case 6: // 报纸双栏：衬线 + 细线，音量藏起来
+            o.hideVol = true
+            o.serif = true
+            o.square = true
+            o.centerLine = true
+            o.fam = Theme.serif
+            o.lrcPx = 15.5
+            o.coverPx = Math.min(130, H * 0.22, W * 0.11)
+            flow6(0, o.coverPx, false)
+            break
+
+        case 7: // 磁带卡：方封面 + 带窗
+            o.square = true
+            o.tape = true
+            o.coverPx = Math.min(150, H * 0.24, W * 0.12)
+            flow6(14, o.coverPx, true)
+            break
+
+        case 8: // 镜像分屏，中央留空
+        {
+            o.hideVol = true
+            o.coverPx = Math.min(120, H * 0.2, W * 0.1)
+            var gw = (W - 180) / 2
+            o.earL.x = 0; o.earL.y = 0; o.earL.w = gw - 12; o.earL.h = H
+            // 左右各一张卡：卡里塞 耳 + 词，中间空 180 给背景
+            o.earL.x = 0; o.earL.y = 0; o.earL.w = 150; o.earL.h = H
+            o.lrcL.x = 162; o.lrcL.y = 0; o.lrcL.w = gw - 162; o.lrcL.h = H
+            o.earR.x = W - 150; o.earR.y = 0; o.earR.w = 150; o.earR.h = H
+            o.lrcR.x = W - gw + 12; o.lrcR.y = 0; o.lrcR.w = gw - 162; o.lrcR.h = H
+            o.deco.push({ x: 0, y: 0, w: gw, h: H })
+            o.deco.push({ x: W - gw, y: 0, w: gw, h: H })
+            break
+        }
+
+        case 9: // 紧凑 mono 密度
+            o.mono = true
+            o.fam = Theme.mono
+            o.coverPx = Math.min(100, H * 0.18, W * 0.09)
+            o.lrcPx = 12.5
+            o.namePx = 13
+            o.labelPx = 11
+            o.timePx = 10
+            flow6(10, o.coverPx, true)
+            break
+
+        default: // 10 双终端窗口（带标题栏）
+        {
+            o.mono = true
+            o.fam = Theme.mono
+            o.hideVol = true
+            o.coverPx = Math.min(110, H * 0.18, W * 0.09)
+            o.lrcPx = 13
+            var tw = (W - 18) / 2
+            var barH = 38
+            o.deco.push({ x: 0, y: 0, w: tw - 9, h: H, term: true, label: "LEFT.log" })
+            o.deco.push({ x: tw + 9, y: 0, w: tw - 9, h: H, term: true, label: "RIGHT.log" })
+            var inner = tw - 9 - 24
+            o.earL.x = 12; o.earL.y = barH + 10; o.earL.w = inner * 0.44; o.earL.h = H - barH - 22
+            o.lrcL.x = 12 + inner * 0.46; o.lrcL.y = barH + 10
+            o.lrcL.w = inner * 0.52; o.lrcL.h = H - barH - 22
+            o.earR.x = tw + 21; o.earR.y = barH + 10; o.earR.w = inner * 0.44; o.earR.h = H - barH - 22
+            o.lrcR.x = tw + 21 + inner * 0.46; o.lrcR.y = barH + 10
+            o.lrcR.w = inner * 0.52; o.lrcR.h = H - barH - 22
+            break
+        }
+        }
+
+        // 中央枢纽（d2）：一条竖线 + 两个点
+        if (o.hub)
+            o.hubX = W / 2
+
+        return o
     }
 
-    // 背景视频
-    VideoOutput
+    // ===== 背景：静态图 + 模糊 + 慢推 =====
+    Item
     {
-        id: musicOutput
+        id: bgLayer
         anchors.fill: parent
-        fillMode: VideoOutput.PreserveAspectCrop
-    }
+        clip: true
 
-    MediaPlayer
-    {
-        id: videoPlayer
-        videoOutput: musicOutput
-        source: "file:///" + Dplay.videoPath
-        autoPlay: true
-        loops: MediaPlayer.Infinite
+        Image
+        {
+            id: bgImage
+            anchors.centerIn: parent
+            width: parent.width * 1.1
+            height: parent.height * 1.1
+            source: Theme.url(player.bgPath)
+            fillMode: Image.PreserveAspectCrop
+            cache: false
+
+            layer.enabled: true
+            layer.effect: FastBlur
+            {
+                radius: 32
+            }
+
+            SequentialAnimation
+            {
+                loops: Animation.Infinite
+                running: bgImage.status === Image.Ready
+
+                NumberAnimation
+                {
+                    target: bgImage
+                    property: "scale"
+                    from: 1.0
+                    to: 1.1
+                    duration: 42000
+                    easing.type: Easing.InOutSine
+                }
+
+                NumberAnimation
+                {
+                    target: bgImage
+                    property: "scale"
+                    from: 1.1
+                    to: 1.0
+                    duration: 42000
+                    easing.type: Easing.InOutSine
+                }
+            }
+        }
     }
 
     Rectangle
     {
         anchors.fill: parent
-        color: "black"
+        color: Theme.veil
         opacity: 0.45
     }
 
-    Button
+    // ===== 返回 =====
+    Rectangle
     {
-        text: "← 返回"
+        id: dblBack
+        property bool hovered: false
         anchors.left: parent.left
+        anchors.leftMargin: 30
         anchors.top: parent.top
-        anchors.margins: 20
-        onClicked:
+        anchors.topMargin: 22
+        width: 74
+        height: 34
+        radius: height / 2
+        color: hovered ? Theme.pan2 : "transparent"
+        z: 999
+
+        Text
         {
-            stack.pop()
+            anchors.centerIn: parent
+            text: "← 返回"
+            color: dblBack.hovered ? Theme.tx : Theme.tx2
+            font.pixelSize: 13
+            font.family: dblRoot.g.mono ? Theme.mono : Theme.family
+        }
+
+        MouseArea
+        {
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onEntered: dblBack.hovered = true
+            onExited: dblBack.hovered = false
+            onClicked: dblRoot.stack.pop()
         }
     }
 
-    Row
+    // ===== 舞台 =====
+    Item
     {
-        anchors.centerIn: parent
-        spacing: mainSpacing
+        id: dst
+        x: 32
+        y: 80
+        width: dblRoot.width - 64
+        height: dblRoot.height - y - 112
+        clip: true
+    }
 
-        // 左耳播放器
-        Column
+    // 卡 / 终端窗
+    Repeater
+    {
+        model: dblRoot.g.deco
+
+        delegate: Rectangle
         {
-            width: playerColWidth
-            spacing: colSpacing
+            x: dst.x + modelData.x
+            y: dst.y + modelData.y
+            width: modelData.w
+            height: modelData.h
+            radius: modelData.term ? 12 : Theme.r2
+            color: Theme.pan
+            border.color: Theme.brd
+            border.width: 1
+            visible: modelData.w > 0
 
-            Text
-            {
-                text: "左耳"
-                color: "white"
-                font.pixelSize: titleFontSize
-                anchors.horizontalCenter: parent.horizontalCenter
-            }
-
-            // 封面
+            // 终端标题栏
             Rectangle
             {
-                id: leftCoverBg
-                width: coverSize
-                height: coverSize
-                radius: width / 2
-                anchors.horizontalCenter: parent.horizontalCenter
-                color: "white"
+                visible: modelData.term === true
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                height: 38
+                color: Theme.pan2
+                border.color: Theme.brd
+                border.width: 1
 
-                // 阴影
-                layer.enabled: true
-                layer.effect: DropShadow
+                Row
                 {
-                    radius: 15
-                    samples: 20
-                    color: "#80000000"
-                }
+                    anchors.left: parent.left
+                    anchors.leftMargin: 14
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 7
 
-                Image
-                {
-                    id: leftCover
-                    anchors.fill: parent
-                    anchors.margins: Math.max(4, 8)
-                    source: "file:///" + Dplay.leftCover
-                    fillMode: Image.PreserveAspectCrop
-                    layer.enabled: true
-                    layer.effect: OpacityMask
+                    Repeater
                     {
-                        maskSource: Rectangle
+                        model: 3
+                        delegate: Rectangle
                         {
-                            width: leftCover.width
-                            height: leftCover.height
-                            radius: leftCover.width / 2
-                            color: "white"
+                            width: 11
+                            height: 11
+                            radius: 6
+                            color: ["#FF5F57", "#FEBC2E", "#28C840"][index]
                         }
                     }
 
-                    RotationAnimation on rotation
+                    Text
                     {
-                        from: 0
-                        to: 360
-                        duration: 10000
-                        loops: Animation.Infinite
-                    }
-                }
-            }
-
-            // 歌曲名
-            Text
-            {
-                text: Dplay.leftMusicName
-                color: "white"
-                font.pixelSize: songFontSize
-                anchors.horizontalCenter: parent.horizontalCenter
-            }
-
-            Row
-            {
-                spacing: 10
-                anchors.horizontalCenter: parent.horizontalCenter
-
-                Text
-                {
-                    text: formatTime(Dplay.leftPosition)
-                    color: "white"
-                    font.pixelSize: timeFontSize
-                    width: 40
-                    horizontalAlignment: Text.AlignRight
-                }
-
-                Slider
-                {
-                    id: leftProgressSlider
-                    width: parent.width * 2 / 3
-                    from: 0
-                    to: 1
-                    value: Dplay.leftMusicDuration > 0 ? Dplay.leftPosition / Dplay.leftMusicDuration : 0
-
-                    onMoved:
-                    {
-                        Dplay.setLeftPos(value * Dplay.leftMusicDuration)
-                    }
-
-                    Connections
-                    {
-                        target: Dplay
-                        function onLeftPositionChanged()
-                        {
-                            if (!leftProgressSlider.pressed)
-                            {
-                                leftProgressSlider.value = Dplay.leftMusicDuration > 0 ? Dplay.leftPosition / Dplay.leftMusicDuration : 0
-                            }
-                        }
-                    }
-
-                    Component.onCompleted:
-                    {
-                        if (Dplay && Dplay.leftMusicDuration > 0)
-                            leftProgressSlider.value = Dplay.leftPosition / Dplay.leftMusicDuration
-                    }
-                }
-
-                Text
-                {
-                    text: formatTime(Dplay.leftMusicDuration)
-                    color: "white"
-                    font.pixelSize: timeFontSize
-                    width: 40
-                }
-            }
-
-            Row
-            {
-                spacing: 20
-                anchors.horizontalCenter: parent.horizontalCenter
-
-                Button 
-                {
-                    text: Dplay && Dplay.leftPlaying ? "⏸" : "▶"
-                    onClicked: 
-                    {
-                        if (!Dplay) return
-                        if(Dplay.leftPlaying)
-                            Dplay.stopLeftMusic();
-                        else if(!Dplay.leftPlaying)
-                            Dplay.playLeft();
+                        anchors.verticalCenter: parent.verticalCenter
+                        leftPadding: 8
+                        text: modelData.label
+                        color: Theme.tx3
+                        font.pixelSize: 12
+                        font.family: Theme.mono
                     }
                 }
             }
         }
+    }
 
-        // 左音量滑块
-        Slider
+    // 中央枢纽（d2）
+    Item
+    {
+        visible: dblRoot.g.hub
+        x: dst.x + dblRoot.g.hubX - 13
+        y: dst.y
+        width: 26
+        height: dst.height
+
+        Rectangle
         {
-            width: volSliderWidth
-            height: parent.height * 3 / 4
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            width: 1
+            color: Theme.brd
+        }
+
+        Repeater
+        {
+            model: 2
+            delegate: Rectangle
+            {
+                width: 10
+                height: 10
+                radius: 5
+                color: Theme.acc
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.verticalCenterOffset: index === 0 ? -60 : 60
+                anchors.verticalCenter: parent.verticalCenter
+            }
+        }
+    }
+
+    // d6 的中缝细线
+    Rectangle
+    {
+        visible: dblRoot.g.centerLine
+        x: dst.x + dst.width / 2
+        y: dst.y + 20
+        width: 1
+        height: dst.height - 40
+        color: Theme.brd
+    }
+
+    // ===== 左右耳播放器 =====
+    Ear10
+    {
+        label: "左耳"
+        x: dst.x + dblRoot.g.earL.x
+        y: dst.y + dblRoot.g.earL.y
+        width: dblRoot.g.earL.w
+        height: dblRoot.g.earL.h
+        vert: dblRoot.g.vert
+        square: dblRoot.g.square
+        tape: dblRoot.g.tape
+        coverPx: dblRoot.g.coverPx
+        fam: dblRoot.g.fam
+        namePx: dblRoot.g.namePx
+        labelPx: dblRoot.g.labelPx
+        timePx: dblRoot.g.timePx
+        name: Dplay.leftMusicName
+        cover: Dplay.leftCover
+        pos: Dplay.leftPosition
+        dur: Dplay.leftMusicDuration
+        playing: Dplay.leftPlaying
+        seed: 1
+        onToggled: Dplay.leftPlaying ? Dplay.stopLeftMusic() : Dplay.playLeft()
+        onSought: function(frac) { Dplay.setLeftPos(frac * Dplay.leftMusicDuration) }
+    }
+
+    Ear10
+    {
+        label: "右耳"
+        x: dst.x + dblRoot.g.earR.x
+        y: dst.y + dblRoot.g.earR.y
+        width: dblRoot.g.earR.w
+        height: dblRoot.g.earR.h
+        vert: dblRoot.g.vert
+        square: dblRoot.g.square
+        tape: dblRoot.g.tape
+        coverPx: dblRoot.g.coverPx
+        fam: dblRoot.g.fam
+        namePx: dblRoot.g.namePx
+        labelPx: dblRoot.g.labelPx
+        timePx: dblRoot.g.timePx
+        name: Dplay.rightMusicName
+        cover: Dplay.rightCover
+        pos: Dplay.rightPosition
+        dur: Dplay.rightMusicDuration
+        playing: Dplay.rightPlaying
+        seed: 2
+        onToggled: Dplay.rightPlaying ? Dplay.stopRightMusic() : Dplay.playRight()
+        onSought: function(frac) { Dplay.setRightPos(frac * Dplay.rightMusicDuration) }
+    }
+
+    // ===== 音量（竖条）=====
+    Column
+    {
+        visible: dblRoot.g.volL.show
+        x: dst.x + dblRoot.g.volL.x
+        y: dst.y + dblRoot.g.volL.y
+        spacing: 8
+
+        Text
+        {
+            anchors.horizontalCenter: parent.horizontalCenter
+            text: "L"
+            color: Theme.tx3
+            font.pixelSize: 10
+            font.family: dblRoot.g.fam
+        }
+
+        Slide10
+        {
+            height: dblRoot.g.volL.h
+            width: 26
+            orientation: Qt.Vertical
+            thickness: 3
             from: 0
             to: 1
             value: Dplay.leftVolume
-            orientation: Qt.Vertical
-            onMoved:
-            {
-                Dplay.setLeftVolume(value)
-            }
-        }
-
-        // 左歌词
-        ListView
-        {
-            id: leftListView
-            width: lrcColWidth
-            height: lrcHeight
-            model: Dplay.leftLrc
-
-            delegate: Text
-            {
-                width: parent.width
-                text: modelData.text
-                color: index === leftLrcIndex ? "purple" : "white"
-                font.pixelSize: index === leftLrcIndex ? lrcHighlightFont : lrcNormalFont
-                opacity: index === leftLrcIndex ? 1 : 0.5
-                horizontalAlignment: Text.AlignHCenter
-            }
-
-            onCountChanged:
-            {
-                positionViewAtIndex(leftLrcIndex, ListView.Center)
-            }
-        }
-
-        // 右歌词
-        ListView
-        {
-            id: rightListView
-            width: lrcColWidth
-            height: lrcHeight
-            model: Dplay.rightLrc
-
-            delegate: Text
-            {
-                width: parent.width
-                text: modelData.text
-                color: index === rightLrcIndex ? "purple" : "white"
-                font.pixelSize: index === rightLrcIndex ? lrcHighlightFont : lrcNormalFont
-                opacity: index === rightLrcIndex ? 1 : 0.5
-                horizontalAlignment: Text.AlignHCenter
-            }
-
-            onCountChanged:
-            {
-                positionViewAtIndex(rightLrcIndex, ListView.Center)
-            }
-        }
-
-        // 右音量滑块
-        Slider
-        {
-            width: volSliderWidth
-            height: parent.height * 3 / 4
-            from: 0
-            to: 1
-            value: Dplay.rightVolume
-            orientation: Qt.Vertical
-            onMoved:
-            {
-                Dplay.setRightVolume(value)
-            }
-        }
-
-        // 右耳播放器
-        Column
-        {
-            width: playerColWidth
-            spacing: colSpacing
-
-            Text
-            {
-                text: "右耳"
-                color: "white"
-                font.pixelSize: titleFontSize
-                anchors.horizontalCenter: parent.horizontalCenter
-            }
-
-            Rectangle
-            {
-                id: rightCoverBg
-                width: coverSize
-                height: coverSize
-                radius: width / 2
-                anchors.horizontalCenter: parent.horizontalCenter
-                color: "white"
-
-                layer.enabled: true
-                layer.effect: DropShadow
-                {
-                    radius: 15
-                    samples: 20
-                    color: "#80000000"
-                }
-
-                Image
-                {
-                    id: rightCover
-                    anchors.fill: parent
-                    anchors.margins: Math.max(4, 8)
-                    source: "file:///" + Dplay.rightCover
-                    fillMode: Image.PreserveAspectCrop
-                    layer.enabled: true
-                    layer.effect: OpacityMask
-                    {
-                        maskSource: Rectangle
-                        {
-                            width: rightCover.width
-                            height: rightCover.height
-                            radius: rightCover.width / 2
-                            color: "white"
-                        }
-                    }
-
-                    RotationAnimation on rotation
-                    {
-                        from: 0
-                        to: 360
-                        duration: 10000
-                        loops: Animation.Infinite
-                    }
-                }
-            }
-
-            // 歌曲名称
-            Text
-            {
-                text: Dplay.rightMusicName
-                color: "white"
-                font.pixelSize: songFontSize
-                anchors.horizontalCenter: parent.horizontalCenter
-            }
-
-            Row
-            {
-                spacing: 10
-                anchors.horizontalCenter: parent.horizontalCenter
-
-                Text
-                {
-                    text: formatTime(Dplay.rightPosition)
-                    color: "white"
-                    font.pixelSize: timeFontSize
-                    width: 40
-                    horizontalAlignment: Text.AlignRight
-                }
-
-                Slider
-                {
-                    id: rightProgressSlider
-                    width: parent.width * 2 / 3
-                    from: 0
-                    to: 1
-                    value: Dplay.rightMusicDuration > 0 ? Dplay.rightPosition / Dplay.rightMusicDuration : 0
-
-                    onMoved:
-                    {
-                        Dplay.setRightPos(value * Dplay.rightMusicDuration)
-                    }
-
-                    Connections
-                    {
-                        target: Dplay
-                        function onRightPositionChanged()
-                        {
-                            if (!rightProgressSlider.pressed)
-                            {
-                                rightProgressSlider.value = Dplay.rightMusicDuration > 0 ? Dplay.rightPosition / Dplay.rightMusicDuration : 0
-                            }
-                        }
-                    }
-
-                    Component.onCompleted:
-                    {
-                        if (Dplay && Dplay.rightMusicDuration > 0)
-                            rightProgressSlider.value = Dplay.rightPosition / Dplay.rightMusicDuration
-                    }
-                }
-
-                Text
-                {
-                    text: formatTime(Dplay.rightMusicDuration)
-                    color: "white"
-                    font.pixelSize: timeFontSize
-                    width: 40
-                }
-            }
-
-            Row
-            {
-                anchors.horizontalCenter: parent.horizontalCenter
-
-                Button 
-                {
-                    text: Dplay && Dplay.rightPlaying ? "⏸" : "▶"
-                    onClicked: 
-                    {
-                        if (!Dplay) return
-                        if(Dplay.rightPlaying)
-                            Dplay.stopRightMusic();
-                        else if(!Dplay.rightPlaying)
-                            Dplay.playRight();
-                    }
-                }
-            }
+            onMoved: Dplay.setLeftVolume(value)
         }
     }
 
+    Column
+    {
+        visible: dblRoot.g.volR.show
+        x: dst.x + dblRoot.g.volR.x
+        y: dst.y + dblRoot.g.volR.y
+        spacing: 8
+
+        Text
+        {
+            anchors.horizontalCenter: parent.horizontalCenter
+            text: "R"
+            color: Theme.tx3
+            font.pixelSize: 10
+            font.family: dblRoot.g.fam
+        }
+
+        Slide10
+        {
+            height: dblRoot.g.volR.h
+            width: 26
+            orientation: Qt.Vertical
+            thickness: 3
+            from: 0
+            to: 1
+            value: Dplay.rightVolume
+            onMoved: Dplay.setRightVolume(value)
+        }
+    }
+
+    // ===== 两条歌词 =====
+    LrcCol10
+    {
+        x: dst.x + dblRoot.g.lrcL.x
+        y: dst.y + dblRoot.g.lrcL.y
+        width: dblRoot.g.lrcL.w
+        height: dblRoot.g.lrcL.h
+        model2: Dplay.leftLrc
+        activeIdx: dblRoot.leftLrcIndex
+        px: dblRoot.g.lrcPx
+        fam: dblRoot.g.fam
+        center: !dblRoot.g.serif
+        hiColor: Theme.lyr
+    }
+
+    LrcCol10
+    {
+        x: dst.x + dblRoot.g.lrcR.x
+        y: dst.y + dblRoot.g.lrcR.y
+        width: dblRoot.g.lrcR.w
+        height: dblRoot.g.lrcR.h
+        model2: Dplay.rightLrc
+        activeIdx: dblRoot.rightLrcIndex
+        px: dblRoot.g.lrcPx
+        fam: dblRoot.g.fam
+        center: !dblRoot.g.serif
+        hiColor: Theme.acc
+    }
+
+    // d5 底部说明水印
+    Text
+    {
+        visible: dblRoot.g.stamp
+        x: 40
+        y: dst.y + dst.height - 34
+        width: dst.width - 80
+        horizontalAlignment: Text.AlignHCenter
+        text: "双耳 = 一个列表条目（左右耳两首），每侧进度独立"
+        color: Theme.tx3
+        font.pixelSize: 11
+        font.family: Theme.family
+    }
+
+    // ===== 行号计算（照 PlayDouble.qml:501-531）=====
     Connections
     {
         target: Dplay
-        function onLeftPositionChanged()
+
+        function onLeftPosChanged()
         {
             let pos = Dplay.leftPosition
             let list = Dplay.leftLrc
+            if (!list || list.length === 0)
+                return
             for (let i = 0; i < list.length; i++)
             {
                 if (i === list.length - 1 || (pos >= list[i].time && pos < list[i + 1].time))
                 {
-                    leftLrcIndex = i
+                    dblRoot.leftLrcIndex = i
                     break
                 }
             }
         }
 
-        function onRightPositionChanged()
+        function onRightPosChanged()
         {
             let pos = Dplay.rightPosition
             let list = Dplay.rightLrc
+            if (!list || list.length === 0)
+                return
             for (let i = 0; i < list.length; i++)
             {
                 if (i === list.length - 1 || (pos >= list[i].time && pos < list[i + 1].time))
                 {
-                    rightLrcIndex = i
+                    dblRoot.rightLrcIndex = i
                     break
                 }
             }

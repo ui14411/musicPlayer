@@ -41,6 +41,7 @@ public:
 	Q_INVOKABLE void addMusicCover(const QString& musicLrcPath, const QString& musicName);
 	Q_INVOKABLE void playDimensionalMusic(const QString& l, const QString& r);
 	Q_INVOKABLE void replaceModel(const QString& filePath);
+	Q_INVOKABLE void checkFile(const QString& file);
 
 public:
 	int rowCount(const QModelIndex& parent = QModelIndex()) const override;
@@ -55,6 +56,8 @@ public:
 	QString findFile(const QString& folder, const QString& baseName);
 
 	void setOnnxPath();
+
+	
 
 private slots: 
 	void setProcess(int value);

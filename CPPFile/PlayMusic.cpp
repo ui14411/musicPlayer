@@ -16,15 +16,9 @@
 PlayMusic::PlayMusic(QObject* parent,QString _filePath)
 	: QObject(parent),filePath(_filePath)
 {
-	if (!onnxPath.isEmpty())
-		setOnnxPath();
-
 	musicPlayer = new QMediaPlayer(this);
 	musicOutput = new QAudioOutput(this);
 	musicPlayer->setAudioOutput(musicOutput);
-
-	as = new AudioSeparator();
-	asSurrounding = new AudioSeparator();
 
 	saveTimer = new QTimer(this);
 
@@ -43,23 +37,6 @@ PlayMusic::PlayMusic(QObject* parent,QString _filePath)
 		settings->setValue("transprant", m_transprant);
 		settings->setValue("pos", curPos);
 	});
-
-	thread1 = new QThread(this);
-	thread2 = new QThread(this);
-
-	as->moveToThread(thread1);
-	asSurrounding->moveToThread(thread2);
-
-	connect(thread1, &QThread::finished, as, &QObject::deleteLater);
-	connect(thread2, &QThread::finished, asSurrounding, &QObject::deleteLater);
-
-	thread1->start();
-	thread2->start();
-
-	QMetaObject::invokeMethod(as, [=]() {as->loadModel(onnxPath.toStdString()); }, Qt::QueuedConnection);
-	connect(this, &PlayMusic::startOnnx, as, &AudioSeparator::separate, Qt::QueuedConnection);
-
-	connect(this, &PlayMusic::startSurrounding, asSurrounding, &AudioSeparator::Surrounding, Qt::QueuedConnection);
 
 	QFileSystemWatcher* watcher = new QFileSystemWatcher(this);
 
@@ -133,22 +110,6 @@ PlayMusic::PlayMusic(QObject* parent,QString _filePath)
 
 PlayMusic::~PlayMusic()
 {
-	if (thread1)
-	{
-		thread1->quit();
-		if (!thread1->wait(1000))
-		{
-			qDebug() << "thread1退出超时";
-		}
-	}
-	if (thread2)
-	{
-		thread2->quit();
-		if (!thread2->wait(1000))
-		{
-			qDebug() << "thread2退出超时";
-		}
-	}
 }
 
 void PlayMusic::playMusic(const QString & musicPath)
@@ -306,11 +267,12 @@ void PlayMusic::setCurrentMusicInfo()
 
 void PlayMusic::setbgImage(const QUrl& bgPath)
 {
-	QString _bgPath = QUrl(bgPath).toLocalFile();
+	QString p = bgPath.isLocalFile() ? bgPath.toLocalFile()
+		: QUrl::fromPercentEncoding(bgPath.toString().toUtf8());
 	
-	this->_bgPath = bgPath;
+	this->_bgPath = QUrl::fromLocalFile(p);
 
-	settings->setValue("background", this->_bgPath);
+	settings->setValue("background", p);
 
 	emit bgchanged();
 }
@@ -327,12 +289,16 @@ void PlayMusic::addbgImage(const QUrl& bgPath)
 
 	bool ok = QFile::copy(_bgPath, targetPath);
 
-	setbgImage();
+	if (ok) {
+		this->_bgPath = QUrl::fromLocalFile(targetPath);
+		settings->setValue("background", targetPath);
+		emit bgchanged();
+	}
 }
 
 void PlayMusic::setbgImage()
 {
-	if (!this->_bgPath.isEmpty() && QFile(this->_bgPath.toString()).exists())
+	if (!this->_bgPath.isEmpty() && QFile(this->_bgPath.toLocalFile()).exists())
 	{
 		return;
 	}
@@ -357,8 +323,8 @@ void PlayMusic::setbgImage()
 			return a.birthTime() > b.birthTime();
 		});
 
-	this->_bgPath = filelist[0].absoluteFilePath();
-	settings->setValue("background", this->_bgPath);
+	this->_bgPath = QUrl::fromLocalFile(filelist[0].absoluteFilePath());
+	settings->setValue("background", filelist[0].absoluteFilePath());
 	emit bgchanged();
 }
 
@@ -597,7 +563,9 @@ void PlayMusic::playPureVoiceMusic()
 
 	if(!QFile(path).exists())
 	{
-		emit startOnnx(pathStr);
+		_playpattern = playModels::Normal;
+		playNormMusic();
+		emit patternFileMissing();
 		return;
 	}
 	else
@@ -628,7 +596,9 @@ void PlayMusic::playAccompanimentMusic()
 
 	if (!QFile(path).exists())
 	{
-		emit startOnnx(pathStr);
+		_playpattern = playModels::Normal;
+		playNormMusic();
+		emit patternFileMissing();
 		return;
 	}
 	else
@@ -659,7 +629,9 @@ void PlayMusic::playSurroundingMusic()
 
 	if (!QFile(path).exists())
 	{
-		emit startSurrounding(pathStr);
+		_playpattern = playModels::Normal;
+		playNormMusic();
+		emit patternFileMissing();
 		return;
 	}
 	else
@@ -788,8 +760,9 @@ void PlayMusic::loadSeetings()
 	_playstatus = static_cast<playStatus>(settings->value("playstatus", Sequential).toInt());
 	m_lrcColor = settings->value("lrcColor", "purple").toString();
 	m_spectrumColor = settings->value("sepctrumColor", "purple").toString();
-	_bgPath = settings->value("background", "").toString();
+	_bgPath = QUrl::fromLocalFile(settings->value("background", "").toString());
 	m_transprant = settings->value("transprant", 0.3).toFloat();
+	m_uiScheme = settings->value("uiScheme", 10).toInt();
 }
 
 QString PlayMusic::getCoverWithTimestamp(const QString& coverPath)
@@ -844,23 +817,19 @@ void PlayMusic::saveTransparent(const float& transparent)
 	emit transprantChanged();
 }
 
+void PlayMusic::setUiScheme(const int& scheme)
+{
+	if (m_uiScheme == scheme)
+		return;
+
+	m_uiScheme = scheme;
+	emit uiSchemeChanged();
+	settings->setValue("uiScheme", m_uiScheme);
+}
+
 void PlayMusic::setPanelmodel(const int& model)
 {
 	this->m_panelModel = model;
 
 	emit panelModelChanged();
-}
-void PlayMusic::setOnnxPath()
-{
-	QString modelDir = QCoreApplication::applicationDirPath() + "/model/";
-
-	QDir dir(modelDir);
-
-	QStringList filters;
-	filters << "*.onnx";
-
-	QStringList old_onnxPaths = dir.entryList(filters, QDir::Files);
-	QString old_onnxPath = modelDir + old_onnxPaths[0];
-
-	onnxPath = old_onnxPath;
 }

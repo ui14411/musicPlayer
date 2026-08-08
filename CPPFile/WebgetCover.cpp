@@ -106,12 +106,9 @@ void WebgetCover::onLyricProcessFinished(
     int exitCode,
     QProcess::ExitStatus status)
 {
+    QByteArray error = m_lyricProcess->readAllStandardError();
 
-    QByteArray error =
-        m_lyricProcess->readAllStandardError();
-
-    QByteArray output =
-        m_lyricProcess->readAllStandardOutput();
+    QByteArray output = m_lyricProcess->readAllStandardOutput().trimmed();
 
     if (status != QProcess::NormalExit || exitCode != 0)
     {
@@ -121,6 +118,26 @@ void WebgetCover::onLyricProcessFinished(
         );
         return;
     }
+
+    if (output.isEmpty()) {
+        emitError("[Error] Lyric script returned empty");
+        return;
+    }
+
+    QJsonParseError parseError;
+	QJsonDocument doc = QJsonDocument::fromJson(output, &parseError);
+    if (parseError.error != QJsonParseError::NoError) {
+        emitError("[Error] lyric json : " + parseError.errorString());
+        return;
+    }
+    
+    QJsonObject obj = doc.object();
+    if (obj["status"].toString() == "ok") {
+		emit lyricReady(obj["path"].toString());
+    }
+    else
+		emitError("[Error] Lyric download failed: " + obj["msg"].toString());
+
 }
 void WebgetCover::onProcessError(QProcess::ProcessError error)
 {

@@ -3,12 +3,9 @@
 #include <QMediaPlayer>
 #include <QAudioOutput>
 #include <QVector>
-#include <QThread>
 #include <QSettings>
 #include <QTimer>
 #include <QCoreApplication>
-
-#include "HeaderFile/AudioSeparator.h"
 
 struct lrcLine
 {
@@ -96,6 +93,7 @@ class PlayMusic :public QObject
 		Q_PROPERTY(int panelModel
 			READ getPanelmodel WRITE setPanelmodel
 			NOTIFY panelModelChanged)
+			Q_PROPERTY(int uiScheme READ getUiScheme WRITE setUiScheme NOTIFY uiSchemeChanged)
 public:
 	enum playStatus
 	{
@@ -150,6 +148,7 @@ public:
 	Q_INVOKABLE void setlyricOffset(const qint64& offset);
 	Q_INVOKABLE void saveTransparent(const float& transparent);
 	Q_INVOKABLE void setPanelmodel(const int& model);
+	Q_INVOKABLE void setUiScheme(const int& scheme);
 
 public:
 	void randMusic();
@@ -179,8 +178,7 @@ public:
 	QString getCoverWithTimestamp(const QString& coverPath);
 	float getTransprant() const { return m_transprant; };
 	int getPanelmodel() const { return m_panelModel; };
-
-	void setOnnxPath();
+	int getUiScheme() const { return m_uiScheme; };
 
 signals:
 	void musicNameChanged();
@@ -198,8 +196,6 @@ signals:
 	void playStatusChanged();
 	void videoPathChanged();
 	void playModelsChanged();
-	void startSurrounding(const QString path);
-	void startOnnx(std::string path);
 	void musicInfoReady(QString name, QString singer,QString cover);
 	void previewpathChange();
 	void lrcColorChanged();
@@ -208,6 +204,8 @@ signals:
 	void stopPreview();
 	void transprantChanged();
 	void panelModelChanged();
+	void uiSchemeChanged();
+	void patternFileMissing();
 
 private:
 	QAudioOutput* musicOutput;
@@ -238,16 +236,8 @@ private:
 	int curPos = 0;
 	qint64 lastAnalyzerPos = 0;
 
-	AudioSeparator* as = nullptr;
-	AudioSeparator* asSurrounding = nullptr;
-	QThread* thread1 = nullptr;
-	QThread* thread2 = nullptr;
-
 	float m_volume = 1.0;
 	float m_transprant = 0.3f;
-
-	QString m_taskName = "";
-	QString onnxPath = "";
 
 	//局部连接槽函数
 	QMetaObject::Connection m_loadConnection;
@@ -256,6 +246,7 @@ private:
 
 	//页面model
 	int m_panelModel = 0;
+	int m_uiScheme = 10;
 
 	//保存设置
 	QSettings* settings;

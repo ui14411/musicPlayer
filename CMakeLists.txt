@@ -67,6 +67,9 @@ endif()
 qt_add_executable(${PROJECT_NAME} ${PROJECT_SOURCES})
 
 if(QT_VERSION VERSION_GREATER_EQUAL 6.2)
+    # ui10ÔºöTheme.qml ÊòØÂçï‰æãÔºà10 Â•óÁöÆËÇ§ÁöÑÂîØ‰∏ÄÊï∞ÊçÆÊ∫êÔºâ
+    set_source_files_properties(QmlFile/ui10/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+
     qt_add_qml_module(${PROJECT_NAME}
         URI nusicvideoqml
         VERSION 1.0
@@ -78,6 +81,16 @@ if(QT_VERSION VERSION_GREATER_EQUAL 6.2)
             QmlFile/ButtonProgress.qml
             QmlFile/PlayDouble.qml
             QmlFile/Splash.qml
+            QmlFile/ui10/Theme.qml
+            QmlFile/ui10/Row10.qml
+            QmlFile/ui10/Ear10.qml
+            QmlFile/ui10/LrcCol10.qml
+            QmlFile/ui10/Disc10.qml
+            QmlFile/ui10/Slide10.qml
+            QmlFile/ui10/TabBtn10.qml
+            QmlFile/ui10/Transport10.qml
+            QmlFile/ui10/Progress10.qml
+            QmlFile/ui10/Info10.qml
     )
 endif()
 
@@ -99,7 +112,7 @@ if(Qt6_FOUND)
     qt_import_qml_plugins(${PROJECT_NAME})
 endif()
 
-# …Ë÷√ FFmpeg ¬∑æ∂
+# ÔøΩÔøΩÔøΩÔøΩ FFmpeg ¬∑ÔøΩÔøΩ
 set(FFMPEG_DIR ${CMAKE_SOURCE_DIR}/FFmpeg)
 target_include_directories(nusicVideoQml PRIVATE 
     ${FFMPEG_DIR}/include
@@ -112,7 +125,7 @@ target_link_libraries(nusicVideoQml PRIVATE
     ${FFMPEG_DIR}/lib/swresample.lib
 )
 
-# …Ë÷√ ONNX Runtime ¬∑æ∂
+# ÔøΩÔøΩÔøΩÔøΩ ONNX Runtime ¬∑ÔøΩÔøΩ
 set(ONNXRUNTIME_DIR ${CMAKE_SOURCE_DIR}/ONNXRuntime)
 target_include_directories(nusicVideoQml PRIVATE ${ONNXRUNTIME_DIR}/include)
 target_link_libraries(nusicVideoQml PRIVATE ${ONNXRUNTIME_DIR}/lib/onnxruntime.lib)

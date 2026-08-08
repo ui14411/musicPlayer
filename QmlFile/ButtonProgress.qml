@@ -1,325 +1,341 @@
-﻿import QtQuick
+import QtQuick
 import QtQuick.Controls
+import nusicvideoqml
 
-Rectangle 
+// 底栏：10 种形态（c1 - c10），外加切套用的色标和数字键
+Item
 {
-    id: root
-    height: 90
-    color: "#202020"
-    opacity:0.4
-    z: 100
-    visible:player.panelModel === 0
+    id: dockRoot
 
+    property bool showSwitcher: true
+    readonly property int v: Theme.c
+    readonly property var g: geo()
     property var stack
-    property bool flag: false
+    property bool schemeReady: false
 
-    Component.onCompleted: 
+    width: parent ? parent.width : 1280
+    height: g.ih + (v === 1 || v === 3 || v === 7 || v === 10 ? 16 : 0)
+    z: 100
+
+    Component.onCompleted:
     {
-        stack = StackView.view
+        dockRoot.stack = StackView.view
+        // 上次选的那套存在他已有的 config/setting.ini 里（PlayMusic 的 QSettings，键名 uiScheme）
+        if (player.uiScheme >= 1 && player.uiScheme <= Theme.schemes.length)
+            Theme.scheme = player.uiScheme
+        dockRoot.schemeReady = true
     }
 
-    MouseArea {
-        anchors.fill: parent
-        z: 1
-        onClicked: {
-            if (stack.currentItem && stack.currentItem.objectName === "playPage") {
-                stack.pop()
+    Connections
+    {
+        target: Theme
+
+        function onSchemeChanged()
+        {
+            if (dockRoot.schemeReady)
+                player.uiScheme = Theme.scheme
+        }
+    }
+
+    // 点底栏左半（封面 + 曲名）= 进/出播放页，和他 ButtonProgress 的行为一致
+    MouseArea
+    {
+        id: dockTap
+        x: infoL.x
+        y: bg.y
+        width: Math.min(infoL.width + 12, dockRoot.width - x)
+        height: bg.height
+        visible: !g.twin && g.progMode !== "top"
+        hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
+        propagateComposedEvents: false
+
+        onClicked:
+        {
+            var cur = dockRoot.stack ? dockRoot.stack.currentItem : null
+            var on = cur && (cur.objectName === "playPage" || cur.objectName === "doublePage")
+            if (on)
+            {
+                dockRoot.stack.pop()
                 player.stopPreview()
-            } else {
-                stack.push("Play.qml")
+            }
+            else
+            {
+                dockRoot.stack.push("Play.qml")
                 player.playVideo(player.currentMusicName)
             }
         }
     }
 
-    // 辅助函数：格式化时间（毫秒 -> mm:ss）
-    function formatTime(ms) 
+    function geo()
     {
-        if (ms <= 0) return "00:00"
-        var seconds = Math.floor(ms / 1000)
-        var minutes = Math.floor(seconds / 60)
-        seconds = seconds % 60
-        return (minutes < 10 ? "0" + minutes : minutes) + ":" +
-               (seconds < 10 ? "0" + seconds : seconds)
+        var W = dockRoot.width
+        var o = {
+            twin: false, opaque: true, grad: false, topLine: false, progMode: "row",
+            iw: Math.min(1060, W * 0.92), ih: Theme.dockH, ix: -1, ir: 999,
+            padL: 20, coverPx: 48, coverR: 999, showModel: true, raised: false,
+            mono: false, fam: Theme.family
+        }
+
+        switch (v)
+        {
+        case 1: // 悬浮玻璃胶囊
+            o.iw = Math.min(1060, W * 0.92); o.ih = 74; o.ir = 37
+            o.coverPx = 48; o.coverR = 999
+            break
+        case 2: // 全宽实心
+            o.iw = W; o.ih = 90; o.ir = 0; o.topLine = true
+            o.coverPx = 58; o.coverR = Theme.r1
+            break
+        case 3: // 轻量浮条
+            o.iw = Math.min(980, W * 0.9); o.ih = 66; o.ir = Theme.r3
+            o.coverPx = 44; o.coverR = Theme.r1
+            break
+        case 4: // 无边细线
+            o.iw = W; o.ih = 90; o.ir = 0; o.opaque = false; o.topLine = true
+            o.coverPx = 58; o.coverR = 6
+            break
+        case 5: // 复古凸起按钮
+            o.iw = W; o.ih = 90; o.ir = 0; o.topLine = true; o.raised = true
+            o.coverPx = 58; o.coverR = 6
+            break
+        case 6: // 进度成顶线
+            o.iw = W; o.ih = 104; o.ir = 0; o.topLine = true; o.progMode = "top"
+            o.coverPx = 58; o.coverR = Theme.r1
+            break
+        case 7: // 右下紧凑胶囊
+            o.iw = Math.min(620, W * 0.6); o.ih = 60; o.ir = 30; o.ix = 24
+            o.coverPx = 40; o.coverR = 999; o.showModel = false; o.padL = 14
+            break
+        case 8: // 渐变融入视频
+            o.iw = W; o.ih = 104; o.ir = 0; o.grad = true
+            o.coverPx = 58; o.coverR = 999
+            break
+        case 9: // 终端状态栏
+            o.iw = W; o.ih = 64; o.ir = 0; o.topLine = true; o.mono = true
+            o.fam = Theme.mono; o.coverPx = 38; o.coverR = 4
+            break
+        default: // 10 双岛
+            o.twin = true; o.iw = W; o.ih = 70; o.ix = 16; o.ir = 35
+            o.coverPx = 46; o.coverR = 999; o.progMode = "bottom"
+            break
+        }
+        return o
     }
 
-    // 左侧：歌曲封面和名称
-    Row 
+    Gradient
     {
-        id:musicInfo
-        anchors.left: parent.left
-        anchors.leftMargin: 15
-        anchors.verticalCenter: parent.verticalCenter
-        spacing: 12
-        // 封面占位（如有专辑封面可替换）
-        Rectangle 
+        id: dockGrad
+        GradientStop { position: 0.0; color: "transparent" }
+        GradientStop { position: 1.0; color: Theme.dockSol }
+    }
+
+    // 单岛 / 全宽底
+    Rectangle
+    {
+        id: bg
+        visible: !g.twin
+        width: g.iw
+        height: g.ih
+        x: (g.ix >= 0 && g.iw < dockRoot.width) ? dockRoot.width - g.iw - g.ix
+                                                : (dockRoot.width - g.iw) / 2
+        y: dockRoot.height - height
+        radius: g.ir
+        color: g.grad ? "transparent" : (g.opaque ? Theme.dockSol : "transparent")
+        gradient: g.grad ? dockGrad : null
+        border.color: (g.topLine || g.opaque) ? Theme.brd : "transparent"
+        border.width: (g.topLine || g.opaque) ? 1 : 0
+    }
+
+    Rectangle
+    {
+        id: islandL
+        visible: g.twin
+        y: dockRoot.height - g.ih
+        height: g.ih
+        radius: g.ir
+        x: g.ix
+        width: infoL.width + 40
+        color: Theme.dockSol
+        border.color: Theme.brd
+        border.width: 1
+    }
+
+    Rectangle
+    {
+        id: islandR
+        visible: g.twin
+        y: dockRoot.height - g.ih
+        height: g.ih
+        radius: g.ir
+        x: dockRoot.width - width - g.ix
+        width: transR.width + 36
+        color: Theme.dockSol
+        border.color: Theme.brd
+        border.width: 1
+    }
+
+    Info10
+    {
+        id: infoL
+        coverPx: g.coverPx
+        coverRadius: g.coverR
+        cover: Theme.url(player.currentMusicCover)
+        title: player.currentMusicName
+        sub: player.currentMusicSinger
+        fam: g.mono ? Theme.mono : Theme.family
+        titlePx: g.mono ? 12 : 13.5
+        subPx: g.mono ? 10.5 : 11.5
+        textW: g.twin ? 170 : (v === 7 ? 130 : 190)
+        x: g.twin ? islandL.x + 20 : bg.x + g.padL
+        anchors.verticalCenter: bg.verticalCenter
+        anchors.verticalCenterOffset: g.progMode === "top" ? 14 : 0
+    }
+
+    Transport10
+    {
+        id: transR
+        btnPx: g.ih > 80 ? 34 : 30
+        bigPx: g.ih > 80 ? 42 : 36
+        shape: g.coverR
+        raised: g.raised
+        showModel: g.showModel
+        fam: g.mono ? Theme.mono : Theme.family
+        x: g.twin ? islandR.x + (islandR.width - width) / 2
+                  : infoL.x + infoL.width + 18
+        anchors.verticalCenter: bg.verticalCenter
+        anchors.verticalCenterOffset: g.progMode === "top" ? 14 : 0
+    }
+
+    Progress10
+    {
+        id: progRow
+        visible: g.progMode === "row"
+        x: transR.x + transR.width + 20
+        anchors.verticalCenter: bg.verticalCenter
+        fam: g.mono ? Theme.mono : Theme.family
+        timeColor: Theme.tx3
+        barW: Math.max(120, bg.x + bg.width - g.padL - x)
+    }
+
+    // c6：进度是底栏顶边那条 3px 线
+    Rectangle
+    {
+        id: progTop
+        visible: g.progMode === "top"
+        x: bg.x
+        y: bg.y
+        width: bg.width
+        height: 3
+        color: Theme.rail
+
+        Rectangle
         {
-            width: 60
-            height: 60
-            radius: 8
-            Image
+            width: progTop.width * (player.musicDuration > 0 ? player.musicPosition / player.musicDuration : 0)
+            height: 3
+            color: Theme.acc
+
+            Behavior on width
             {
-                anchors.fill: parent
-                source: "file:///" + player.currentMusicCover
-                fillMode: Image.PreserveAspectCrop
+                NumberAnimation { duration: 180 }
             }
         }
 
-        Column 
+        MouseArea
         {
-            spacing: 4
-            Text 
-            {
-                text: player ? player.currentMusicName : ""
-                color: "white"
-                font.pixelSize: 16
-                font.bold: true
-            }
-            Text 
-            {
-                text: player ? player.currentMusicSinger : ""
-                color: "#bbbbbb"
-                font.pixelSize: 12
-            }
+            anchors.fill: parent
+            property real frac: Math.min(1, Math.max(0, mouseX / width))
+            onPressed: player.setPosition(frac * player.musicDuration)
+            onPositionChanged: if (pressed) player.setPosition(frac * player.musicDuration)
         }
     }
 
-    // 中央：控制按钮和进度条
-    Column 
+    // c10：进度浮在两岛之间
+    Progress10
     {
+        id: progBottom
+        visible: g.progMode === "bottom"
         anchors.horizontalCenter: parent.horizontalCenter
-        anchors.verticalCenter: parent.verticalCenter
-        spacing: 8
-        z:2
-        // 控制按钮
-        Row 
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 2
+        barW: Math.min(560, dockRoot.width * 0.46)
+    }
+
+    // 切套色标（放在底栏上方，不压内容）
+    Row
+    {
+        id: chips
+        visible: dockRoot.showSwitcher
+        spacing: 4
+        anchors.right: parent.right
+        anchors.rightMargin: 18
+        anchors.bottom: parent.top
+        anchors.bottomMargin: 6
+        z: 2
+
+        Repeater
         {
-            spacing: 20
-            anchors.horizontalCenter: parent.horizontalCenter
-            
-            Button 
+            model: Theme.schemes
+            delegate: Rectangle
             {
-                text: "⏮"
-                onClicked: if (player) player.prevMusic()
-            }
-            Button 
-            {
-                text: player && player.playing ? "⏸" : "▶"
-                onClicked: 
-                {
-                    if (!player) return
-                    if(player.playing)
-                        player.Pause();
-                    else if(!player.playing)
-                       player.Play();
-                }
-            }
-            Button 
-            {
-                text: "⏭"
-                onClicked: if (player) player.nextMusic()
-            }
-            Button 
-            {
-                text: 
-                {
-                    if (player.playmodel === 2) return "顺序播放"
-                    else if (player.playmodel === 1) return "随机播放" 
-                    else if (player.playmodel === 0) return "单曲循环"    
-                } 
-                onClicked: player.switchModel()
-            }
-            Button
-            {
-                id: modeButton
+                property bool hovered: false
+                width: 20
+                height: 20
+                radius: 6
+                color: Theme.schemes[index].acc
+                border.color: Theme.n === index + 1 ? Theme.tx : "#33FFFFFF"
+                border.width: Theme.n === index + 1 ? 2 : 1
+                opacity: hovered ? 1 : 0.72
 
-                text:
+                Text
                 {
-                    if(player.playpattern === 0) return "原声 ▼"
-                    else if(player.playpattern === 1) return "人声 ▼"
-                    else if(player.playpattern === 2) return "伴奏 ▼"
-                    else if(player.playpattern === 3) return "环绕 ▼"
-                    return "模式 ▼"
+                    anchors.centerIn: parent
+                    text: index + 1 === 10 ? "0" : "" + (index + 1)
+                    color: Theme.schemes[index].acctx
+                    font.pixelSize: 11
+                    font.bold: true
                 }
 
-                onClicked:
+                MouseArea
                 {
-                    if(modePopup.opened)
-                        modePopup.close()
-                    else
-                        modePopup.open()
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onEntered: hovered = true
+                    onExited: hovered = false
+                    onClicked: Theme.scheme = index + 1
+                }
+
+                ToolTip
+                {
+                    visible: parent.hovered
+                    text: Theme.schemes[index].name
+                    delay: 250
                 }
             }
-        }
-        // 进度条区域
-        Row 
-        {
-            spacing: 10
-            anchors.horizontalCenter: parent.horizontalCenter
-            Text 
-            {
-                id: currentTimeLabel
-                text: formatTime(player ? player.position : 0)
-                color: "white"
-                font.pixelSize: 12
-                width: 40
-                horizontalAlignment: Text.AlignRight
-            }
-
-            Slider 
-            {
-                id: progressSlider
-                width: 400
-                from: 0
-                to: 1
-                value: 0
-
-                onMoved: 
-                {
-                    if (player)
-                        player.setPosition(value * player.musicDuration)
-                }
-            }
-
-            Text 
-            {
-                text: formatTime(player ? player.musicDuration : 0)
-                color: "white"
-                font.pixelSize: 12
-                width: 40
-            }
-        }
-
-        Connections 
-        {
-            target: player
-
-            onMusicPositionChanged:
-            {
-                if (!progressSlider.pressed && player && player.musicDuration > 0) 
-                {
-                    progressSlider.value = player.musicPosition / player.musicDuration
-                }
-            }
-        }
-
-        Component.onCompleted: 
-        {
-            if (player && player.musicDuration > 0)
-                progressSlider.value = player.musicPosition / player.musicDuration
         }
     }
 
-    Popup
+    Shortcut { sequence: "1"; onActivated: Theme.scheme = 1 }
+    Shortcut { sequence: "2"; onActivated: Theme.scheme = 2 }
+    Shortcut { sequence: "3"; onActivated: Theme.scheme = 3 }
+    Shortcut { sequence: "4"; onActivated: Theme.scheme = 4 }
+    Shortcut { sequence: "5"; onActivated: Theme.scheme = 5 }
+    Shortcut { sequence: "6"; onActivated: Theme.scheme = 6 }
+    Shortcut { sequence: "7"; onActivated: Theme.scheme = 7 }
+    Shortcut { sequence: "8"; onActivated: Theme.scheme = 8 }
+    Shortcut { sequence: "9"; onActivated: Theme.scheme = 9 }
+    Shortcut { sequence: "0"; onActivated: Theme.scheme = 10 }
+
+    Shortcut
     {
-        id: modePopup
+        sequence: "["
+        onActivated: Theme.scheme = Theme.n === 1 ? 10 : Theme.n - 1
+    }
 
-        x: modeButton.mapToItem(parent, 0, 0).x + modeButton.width / 2 - width / 2
-        y: modeButton.mapToItem(parent,0,0).y - height - 8
-
-        width: 140
-        padding: 0
-        height: 160
-
-        modal: false
-        focus: true
-
-        closePolicy:
-            Popup.CloseOnEscape |
-            Popup.CloseOnPressOutside
-
-        enter: Transition
-        {
-            NumberAnimation
-            {
-                property: "opacity"
-                from: 0
-                to: 1
-                duration: 150
-            }
-        }
-
-        exit: Transition
-        {
-            NumberAnimation
-            {
-                property: "opacity"
-                from: 1
-                to: 0
-                duration: 120
-            }
-        }
-
-        background: Rectangle
-        {
-            radius: 8
-            color: "#2E2E2E"
-            border.color: "#505050"
-            border.width: 1
-        }
-
-        Column
-        {
-            width: parent.width
-            spacing: 0
-
-            Repeater
-            {
-                model:
-                [
-                    "原声",
-                    "人声",
-                    "伴奏",
-                    "环绕"
-                ]
-
-                delegate: Rectangle
-                {
-                    width: parent.width
-                    height: 40
-
-                    color:
-                    {
-                        if(mouse.containsMouse)
-                            return "#505050"
-
-                        if(index === player.playpattern)
-                            return "#3A7AFE"
-
-                        return "transparent"
-                    }
-
-                    Text
-                    {
-                        anchors.centerIn: parent
-
-                        text:
-                        {
-                            if(index === player.playpattern)
-                                return "✓  " + modelData
-
-                            return modelData
-                        }
-
-                        color: "white"
-                        font.pixelSize: 15
-                    }
-
-                    MouseArea
-                    {
-                        id: mouse
-
-                        anchors.fill: parent
-                        hoverEnabled: true
-
-                        onClicked:
-                        {
-                            player.playpattern = index
-                            modePopup.close()
-                        }
-                    }
-                }
-            }
-        }
-     }  
+    Shortcut
+    {
+        sequence: "]"
+        onActivated: Theme.scheme = Theme.n === 10 ? 1 : Theme.n + 1
+    }
 }

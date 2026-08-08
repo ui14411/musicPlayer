@@ -89,21 +89,18 @@ loadlocalMusic::loadlocalMusic(QObject* parent,QString _path)
 
 loadlocalMusic::~loadlocalMusic()
 {
-	if (thread1)
-	{
-		thread1->quit();
-		if (!thread1->wait(1000))
-		{
-			qDebug() << "thread1退出超时";
-		}
+	if (as)            
+		as->cancelTask();
+	if (asSurrounding) 
+		asSurrounding->cancelTask();
+	
+	if (thread1) { 
+		thread1->quit(); 
+		thread1->wait(); 
 	}
-	if (thread2)
-	{
-		thread2->quit();
-		if (!thread2->wait(1000))
-		{
-			qDebug() << "thread2退出超时";
-		}
+	if (thread2) {
+		thread2->quit(); 
+		thread2->wait(); 
 	}
 }
 
@@ -246,7 +243,6 @@ void loadlocalMusic::addMusicCover(const QString& musicLrcPath, const QString& m
 
 void loadlocalMusic::playDimensionalMusic(const QString& l, const QString& r)
 {
-	
 	QString leftMusic = QUrl(l).toLocalFile();
 	QString rightMusic = QUrl(r).toLocalFile();
 
@@ -256,14 +252,14 @@ void loadlocalMusic::playDimensionalMusic(const QString& l, const QString& r)
 	QStringList Lparts = Lname.baseName().split(" - ");
 	QString LmusicName;
 	if (Lparts.size() == 2)
-		LmusicName = Lname.baseName().split(" - ")[1];
+		LmusicName = Lparts[1];
 	else
 		LmusicName = Lname.baseName();
 
 	QStringList Rparts = Rname.baseName().split(" - ");
 	QString RmusicName;
 	if (Rparts.size() == 2)
-		RmusicName = Rname.baseName().split(" - ")[1];
+		RmusicName = Rparts[1];
 	else
 		RmusicName = Rname.baseName();
 
@@ -283,10 +279,12 @@ void loadlocalMusic::replaceModel(const QString& filePath)
 	filters << "*.onnx";
 
 	QStringList old_onnxPaths = dir.entryList(filters,QDir::Files);
+	if (old_onnxPaths.isEmpty()) {
+		qDebug() << "[Error] No existing .onnx model found in the model directory.";
+		return;
+	}
 	QString old_onnxPath = modelDir + old_onnxPaths[0];
-	if(!old_onnxPaths.isEmpty())
-		QFile::remove(old_onnxPath);
-
+	QFile::remove(old_onnxPath);
 	QFile::copy(filePath, targetPath);
 
 	onnxPath = targetPath;
@@ -359,9 +357,14 @@ void loadlocalMusic::removeMusic(int row)
 	QString removePath_pureVoice = findFile(folder + "/pureHumanVoice/", removefileName);
 	QString removePath_pureAccompaniment = findFile(folder + "/pureAccompaniment/", removefileName);
 	QString removePath_cover = findFile(folder + "/cover/", removefileName);
+	QString removePath_surrounding = findFile(folder + "/surrounding/", removefileName);
 
 	QFile::remove(musiclist.at(row)["musicPath"].toString());
 
+	if(!removePath_surrounding.isEmpty())
+	{
+		QFile::remove(removePath_surrounding);
+	}
 	if (!removePath_video.isEmpty())
 	{
 		QFile::remove(removePath_video);
@@ -393,8 +396,6 @@ void loadlocalMusic::removeVideo(int row)
 	if (row < 0 || row >= musiclist.size())
 		return;
 
-	beginRemoveRows(QModelIndex(), row, row);
-
 	QString removePath_music = musiclist.at(row)["musicPath"].toString();
 	QFileInfo fileinfo(removePath_music);
 	QString removefileName = fileinfo.completeBaseName();
@@ -405,9 +406,6 @@ void loadlocalMusic::removeVideo(int row)
 	{
 		QFile::remove(removePath_video);
 	}
-	musiclist.removeAt(row);
-
-	endRemoveRows();
 }
 
 void loadlocalMusic::removelrc(int row)
@@ -491,7 +489,7 @@ void loadlocalMusic::getMusicinfo_addmusic(int row,const QString& path)
 			if (QFile(targetPath).exists())
 			{
 				beginRemoveRows(QModelIndex(), row, row);
-				
+				musiclist.removeAt(row);
 				endRemoveRows();
 
 				return;
@@ -602,7 +600,22 @@ void loadlocalMusic::setOnnxPath()
 	filters << "*.onnx";
 
 	QStringList old_onnxPaths = dir.entryList(filters, QDir::Files);
+	if (old_onnxPaths.isEmpty()) {
+		qDebug() << "[Error] model is Null!!!";
+		onnxPath = "";
+		return;
+	}
 	QString old_onnxPath = modelDir + old_onnxPaths[0];
 
 	onnxPath = old_onnxPath;
+}
+
+void loadlocalMusic::checkFile(const QString& file) {
+	QFileInfo fileInfo(file);
+	QString name = fileInfo.completeBaseName();
+	QString base = QCoreApplication::applicationDirPath() + "/";
+	if (findFile(base + "surrounding/", name).isEmpty())
+		emit startSurrounding(file);
+	if (findFile(base + "pureHumanVoice/", name).isEmpty() || findFile(base + "pureAccompaniment/", name).isEmpty())
+		emit startOnnx(file.toStdString());
 }

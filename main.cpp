@@ -33,14 +33,12 @@ int main(int argc, char* argv[])
 #if defined(Q_OS_WIN) && QT_VERSION_CHECK(5, 6, 0) <= QT_VERSION && QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
     QCoreApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
 #endif
-    AllocConsole();
+    /*AllocConsole();
     freopen("CONOUT$", "w", stdout);
-    freopen("CONOUT$", "w", stderr);
+    freopen("CONOUT$", "w", stderr);*/
     QGuiApplication app(argc, argv);
 
     QQmlApplicationEngine engine;
-
-    loadlocalVideo videoload;
 
     QString musicPath = QCoreApplication::applicationDirPath() + "/music";
     QString videoPath = QCoreApplication::applicationDirPath() + "/video";
@@ -52,6 +50,7 @@ int main(int argc, char* argv[])
     QDir().mkpath(doubleMusicPath);
     QDir().mkpath(bgPath);
 
+    loadlocalVideo videoload;
     PlayMusic player(nullptr,musicPath);
     loadlocalMusic musicload(nullptr,musicPath);
     DoubleEar Dmusic(nullptr, doubleMusicPath);

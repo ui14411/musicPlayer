@@ -2,14 +2,10 @@
 
 #include <vector>
 #include <string>
-#include <memory>
 #include <complex>
 #include <QString>
-#include <QAudioSink>
-#include <QAudioFormat>
-#include <QMediaDevices>
-#include <QThread>
 #include <atomic>
+#include <QFile>
 
 extern "C" 
 {
@@ -23,6 +19,7 @@ struct OrtSession;
 struct OrtEnv;
 struct OrtMemoryInfo;
 struct OrtSessionOptions;
+struct WebgetCover;
 
 struct HRTFData
 {
@@ -33,26 +30,18 @@ struct HRTFData
     std::vector<float>rightIR;
 };
 
-struct WavHeader
+// 流式 WAV：open → 每块 append → close（close 时回填 RIFF/data 长度）
+class WavStreamWriter
 {
-    char riff[4];
-    uint32_t fileSize;
-    char wave[4];
-
-    char fmt[4];
-    uint32_t fmtSize;
-
-    uint16_t audioFormat;
-    uint16_t channels;
-
-    uint32_t sampleRate;
-    uint32_t byteRate;
-
-    uint16_t blockAlign;
-    uint16_t bitsPerSample;
-
-    char dataTag[4];
-    uint32_t dataSize;
+public:
+    bool open(const QString& path, int sampleRate, int channels);
+    bool append(const std::vector<float>& pcm);   // float → int16，追加写
+    bool close();
+private:
+    QFile m_file;
+    int m_sampleRate = 0;
+    int m_channels = 0;
+    quint32 m_dataBytes = 0;
 };
 
 class AudioSeparator : public QObject
@@ -69,9 +58,6 @@ public slots:
 
     // 分离音频文件，输入路径，输出路径
     bool separate(const std::string& inputFile);
-
-    // 获取最后一次错误的描述
-    std::string getLastError() const { return m_lastError; }
 
     //环绕音
     bool Surrounding(const QString& filePath);
@@ -95,11 +81,6 @@ private:
         std::vector<std::complex<float>> spectrum; // 长度 = fftSize/2+1
     };
 
-    std::vector<STFTFrame> stft(const std::vector<float>& pcm, int fftSize, int hopSize);
-
-    // ISTFT (单声道)
-    std::vector<float> istft(const std::vector<STFTFrame>& frames, int fftSize, int hopSize);
-
     // 构建模型输入 tensor (立体声左+右的实部虚部)
     void buildInputTensor(const std::vector<STFTFrame>& leftFrames,
         const std::vector<STFTFrame>& rightFrames,
@@ -110,6 +91,15 @@ private:
     bool writeWav(const std::string& filePath,
         const std::vector<float>& pcm,
         int sampleRate, int channels);
+
+    // 分块流式：只算帧区间 [f0,f1) 的 STFT（与整首 stft() 逐帧一致）
+    std::vector<STFTFrame> stftRange(const std::vector<float>& pcm,
+        int f0, int f1, int fftSize, int hopSize);
+
+    // 分块流式：只重建样本区间 [outBegin,outEnd) 的 ISTFT（与整首 istft() 逐样本一致）
+    std::vector<float> istftRange(const std::vector<STFTFrame>& frames,
+        int frameOffset, int outBegin, int outEnd, int fftSize, int hopSize);
+
 
     //读取HRTR文件，读入内存
     bool decodeHRTF();
@@ -136,6 +126,8 @@ private:
         size_t pos, std::vector<float>& Lout, std::vector<float>& Rout, 
         std::vector<float>& Ldry, std::vector<float>& Rdry, int blockSize);
 
+    void getMusicInfo(const QString& path,const QString& name,WebgetCover* web);//获取信息
+
     //成员变量
 private:
     // ONNX Runtime 相关
@@ -146,9 +138,6 @@ private:
     std::string m_outputName;
     std::string m_lastError;
 
-    QString musicName = "";
-
-    bool LoadIR(int elevation, float azimuth, std::vector<float>& leftIR, std::vector<float>& rightIR);
 
     // 禁止拷贝
     AudioSeparator(const AudioSeparator&) = delete;
@@ -157,13 +146,10 @@ private:
     //存储wav文件路径
     std::vector<HRTFData> wavFiles;
 
+public:
     std::atomic_bool m_task{ false };
-
-    struct whisper_context* m_whisperCtx = nullptr;
 
 signals:
     void separateProgress(int value);
     void sendtaskName(QString path);
-    void separatefished();
-    void surroundfished();
 };
