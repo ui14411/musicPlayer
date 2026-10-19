@@ -268,7 +268,8 @@ musicPlayer/
 │   └── Qt Quick UI
 │
 ├── FFmpeg/
-│   └── FFmpeg development files
+│   ├── include/        # FFmpeg 头文件
+│   └── lib/            # 导入库 *.lib（已入库）
 │
 ├── kissFFT/
 │   └── FFT library
@@ -332,7 +333,10 @@ musicPlayer/
 # ⚙️ 源码编译
 
 
-## 1. 下载 ONNX Runtime
+## 1. 准备依赖
+
+
+### ONNX Runtime
 
 
 从 Releases 下载：
@@ -342,16 +346,24 @@ ONNXRuntime_Lib.zip
 ```
 
 
-解压：
+解压覆盖到 `ONNXRuntime/`。其中 `onnxruntime.dll` 是运行时必需；
+导入库 `onnxruntime.lib`（约 2 KB）已随仓库提供，解压覆盖即可。
+
+
+### FFmpeg
+
+
+头文件 `FFmpeg/include/` 与导入库 `FFmpeg/lib/*.lib` **已随仓库提供，无需下载**。
+
+
+FFmpeg 的运行时 DLL 体积过大（`avcodec-62.dll` 约 92 MB），不入库。
+请从 Releases 的 `musicPlayer.zip` 中取出下列 DLL，放到 `nusicVideoQml.exe` 同目录：
 
 ```
-ONNXRuntime/
-
-├── include/
-│
-└── lib/
-    └── onnxruntime.lib
-
+avcodec-62.dll
+avformat-62.dll
+avutil-60.dll
+swresample-6.dll
 ```
 
 

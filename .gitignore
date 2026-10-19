@@ -78,9 +78,13 @@ ui_*.h
 # =========================
 # ONNX Runtime
 # =========================
-# 太大，不上传
-ONNXRuntime/lib/
+# DLL / PDB 太大，不上传（运行时请从 Release 获取）
+ONNXRuntime/lib/*
 ONNXRuntime/bin/
+
+# 但导入库极小（约 2 KB），入库以保证克隆源码后可直接链接
+!ONNXRuntime/lib/onnxruntime.lib
+!ONNXRuntime/lib/onnxruntime_providers_shared.lib
 
 ONNXRuntime/*.dll
 ONNXRuntime/*.lib
@@ -108,6 +112,10 @@ model/
 # =========================
 # 保留 FFmpeg
 # 不忽略 FFmpeg/
+
+# 导入库入库（*.lib 合计约 0.9 MB）；运行时 DLL（avcodec-62.dll 达 92 MB）不入库，走 Release
+# 注意：反向规则必须写在上面 *.lib 规则之后才生效
+!FFmpeg/lib/*.lib
 
 
 # =========================
