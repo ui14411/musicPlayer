@@ -1,4 +1,4 @@
-#include <QDir>
+ï»¿#include <QDir>
 #include <QFileInfo>
 #include <QUrl>
 #include <QCoreApplication>
@@ -37,7 +37,7 @@ void DoubleEar::loadMusiclist()
 		return;
 	}
 
-	// »ñÈ¡×ÓÎÄ¼ş¼Ğ
+	// è·å–å­æ–‡ä»¶å¤¹
 	QFileInfoList folderList = dir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
 
 	for (auto& folder : folderList)
@@ -48,10 +48,10 @@ void DoubleEar::loadMusiclist()
 
 		QVariantMap musicMap;
 
-		// Ë«¶úÒôÀÖÃû×Ö
+		// åŒè€³éŸ³ä¹åå­—
 		musicMap["musicName"] = folderName;
 
-		// Õ¼Î»¸èÊÖ
+		// å ä½æ­Œæ‰‹
 		musicMap["musicSinger"] = "Double Ear";
 
 		musicMap["musicPath"] = folder.absoluteFilePath();

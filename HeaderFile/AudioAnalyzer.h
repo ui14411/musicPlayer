@@ -1,4 +1,4 @@
-#ifndef AUDIOANALYZER_H
+ï»¿#ifndef AUDIOANALYZER_H
 #define AUDIOANALYZER_H
 
 #include <QObject>
@@ -14,21 +14,21 @@ class AudioAnalyzer : public QObject
 public:
     explicit AudioAnalyzer(QObject* parent = nullptr);
 
-    //»ñÈ¡×îºóµÄ´íÎóĞÅÏ¢
+    //è·å–æœ€åçš„é”™è¯¯ä¿¡æ¯
     QString getLastError() const { return m_lastError; };
 
 public slots:
-    //¼ÓÔØÒôÀÖ
+    //åŠ è½½éŸ³ä¹
     bool loadMusic(QString path);
 
     void analyzePCM(qint64 position);
 
 signals:
-    //·¢ËÍÆµÆ×¸øqml
+    //å‘é€é¢‘è°±ç»™qml
     void spectrumChanged(QVariantList data);
 
 private:
-    //ÒôÀÖ½âÂë
+    //éŸ³ä¹è§£ç 
     bool decodeAudio(const std::string& filePath, std::vector<float>& stereoPcm, int& sampleRate);
 
 private:

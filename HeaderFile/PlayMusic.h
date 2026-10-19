@@ -1,4 +1,4 @@
-#pragma once
+ï»¿#pragma once
 #include <QObject>
 #include <QMediaPlayer>
 #include <QAudioOutput>
@@ -239,16 +239,16 @@ private:
 	float m_volume = 1.0;
 	float m_transprant = 0.3f;
 
-	//¾Ö²¿Á¬½Ó²Ûº¯Êı
+	//å±€éƒ¨è¿æ¥æ§½å‡½æ•°
 	QMetaObject::Connection m_loadConnection;
 
 	qint64 m_lyricOffset = 0;
 
-	//Ò³Ãæmodel
+	//é¡µé¢model
 	int m_panelModel = 0;
 	int m_uiScheme = 10;
 
-	//±£´æÉèÖÃ
+	//ä¿å­˜è®¾ç½®
 	QSettings* settings;
 	QTimer* saveTimer;
 };

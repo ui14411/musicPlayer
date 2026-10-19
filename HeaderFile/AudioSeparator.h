@@ -1,4 +1,4 @@
-#pragma once
+ï»¿#pragma once
 
 #include <vector>
 #include <string>
@@ -30,12 +30,12 @@ struct HRTFData
     std::vector<float>rightIR;
 };
 
-// Á÷Ê½ WAV£ºopen ¡ú Ã¿¿é append ¡ú close£¨close Ê±»ØÌî RIFF/data ³¤¶È£©
+// æµå¼ WAVï¼šopen â†’ æ¯å— append â†’ closeï¼ˆclose æ—¶å›å¡« RIFF/data é•¿åº¦ï¼‰
 class WavStreamWriter
 {
 public:
     bool open(const QString& path, int sampleRate, int channels);
-    bool append(const std::vector<float>& pcm);   // float ¡ú int16£¬×·¼ÓĞ´
+    bool append(const std::vector<float>& pcm);   // float â†’ int16ï¼Œè¿½åŠ å†™
     bool close();
 private:
     QFile m_file;
@@ -51,60 +51,60 @@ public:
     AudioSeparator(QObject* parent = nullptr);
     ~AudioSeparator();
 public slots:
-    // ¼ÓÔØ ONNX Ä£ĞÍ£¬modelPath Îª UTF-8 Â·¾¶
+    // åŠ è½½ ONNX æ¨¡å‹ï¼ŒmodelPath ä¸º UTF-8 è·¯å¾„
     bool loadModel(const std::string& modelPath,
         const std::string& inputName = "input",
         const std::string& outputName = "output");
 
-    // ·ÖÀëÒôÆµÎÄ¼ş£¬ÊäÈëÂ·¾¶£¬Êä³öÂ·¾¶
+    // åˆ†ç¦»éŸ³é¢‘æ–‡ä»¶ï¼Œè¾“å…¥è·¯å¾„ï¼Œè¾“å‡ºè·¯å¾„
     bool separate(const std::string& inputFile);
 
-    //»·ÈÆÒô
+    //ç¯ç»•éŸ³
     bool Surrounding(const QString& filePath);
 
-    //Ë«¶ú·ÖÌı
+    //åŒè€³åˆ†å¬
     bool doubleEarListening(const QString& leftPath, const QString& rightPath,
         const QString& Lname, const QString& Rname);
 
-    void cancelTask();//ÈÎÎñÈ¡Ïû»úÖÆ
+    void cancelTask();//ä»»åŠ¡å–æ¶ˆæœºåˆ¶
 
-//³ÉÔ±º¯Êı
+//æˆå‘˜å‡½æ•°
 private:
-    // ½âÂëÎªÁ¢ÌåÉù PCM (float, 44100Hz)
+    // è§£ç ä¸ºç«‹ä½“å£° PCM (float, 44100Hz)
     bool decodeAudio(const std::string& filePath,
         std::vector<float>& stereoPcm,
         int& sampleRate);
 
-    // STFT (µ¥ÉùµÀ)
+    // STFT (å•å£°é“)
     struct STFTFrame 
     {
-        std::vector<std::complex<float>> spectrum; // ³¤¶È = fftSize/2+1
+        std::vector<std::complex<float>> spectrum; // é•¿åº¦ = fftSize/2+1
     };
 
-    // ¹¹½¨Ä£ĞÍÊäÈë tensor (Á¢ÌåÉù×ó+ÓÒµÄÊµ²¿Ğé²¿)
+    // æ„å»ºæ¨¡å‹è¾“å…¥ tensor (ç«‹ä½“å£°å·¦+å³çš„å®éƒ¨è™šéƒ¨)
     void buildInputTensor(const std::vector<STFTFrame>& leftFrames,
         const std::vector<STFTFrame>& rightFrames,
         int startFrame,
         std::vector<float>& outputTensor);
 
-    // Ğ´ WAV ÎÄ¼ş
+    // å†™ WAV æ–‡ä»¶
     bool writeWav(const std::string& filePath,
         const std::vector<float>& pcm,
         int sampleRate, int channels);
 
-    // ·Ö¿éÁ÷Ê½£ºÖ»ËãÖ¡Çø¼ä [f0,f1) µÄ STFT£¨ÓëÕûÊ× stft() ÖğÖ¡Ò»ÖÂ£©
+    // åˆ†å—æµå¼ï¼šåªç®—å¸§åŒºé—´ [f0,f1) çš„ STFTï¼ˆä¸æ•´é¦– stft() é€å¸§ä¸€è‡´ï¼‰
     std::vector<STFTFrame> stftRange(const std::vector<float>& pcm,
         int f0, int f1, int fftSize, int hopSize);
 
-    // ·Ö¿éÁ÷Ê½£ºÖ»ÖØ½¨Ñù±¾Çø¼ä [outBegin,outEnd) µÄ ISTFT£¨ÓëÕûÊ× istft() ÖğÑù±¾Ò»ÖÂ£©
+    // åˆ†å—æµå¼ï¼šåªé‡å»ºæ ·æœ¬åŒºé—´ [outBegin,outEnd) çš„ ISTFTï¼ˆä¸æ•´é¦– istft() é€æ ·æœ¬ä¸€è‡´ï¼‰
     std::vector<float> istftRange(const std::vector<STFTFrame>& frames,
         int frameOffset, int outBegin, int outEnd, int fftSize, int hopSize);
 
 
-    //¶ÁÈ¡HRTRÎÄ¼ş£¬¶ÁÈëÄÚ´æ
+    //è¯»å–HRTRæ–‡ä»¶ï¼Œè¯»å…¥å†…å­˜
     bool decodeHRTF();
 
-    //²éÕÒ×î½üµÄÁ½¸öHRIR
+    //æŸ¥æ‰¾æœ€è¿‘çš„ä¸¤ä¸ªHRIR
     bool FindTwoNearestHRIR(
         int elevation,
         float azimuth,
@@ -126,11 +126,11 @@ private:
         size_t pos, std::vector<float>& Lout, std::vector<float>& Rout, 
         std::vector<float>& Ldry, std::vector<float>& Rdry, int blockSize);
 
-    void getMusicInfo(const QString& path,const QString& name,WebgetCover* web);//»ñÈ¡ĞÅÏ¢
+    void getMusicInfo(const QString& path,const QString& name,WebgetCover* web);//è·å–ä¿¡æ¯
 
-    //³ÉÔ±±äÁ¿
+    //æˆå‘˜å˜é‡
 private:
-    // ONNX Runtime Ïà¹Ø
+    // ONNX Runtime ç›¸å…³
     void* m_env;        // OrtEnv*
     void* m_session;    // OrtSession*
     void* m_memInfo;    // OrtMemoryInfo*
@@ -139,11 +139,11 @@ private:
     std::string m_lastError;
 
 
-    // ½ûÖ¹¿½±´
+    // ç¦æ­¢æ‹·è´
     AudioSeparator(const AudioSeparator&) = delete;
     AudioSeparator& operator=(const AudioSeparator&) = delete;
 
-    //´æ´¢wavÎÄ¼şÂ·¾¶
+    //å­˜å‚¨wavæ–‡ä»¶è·¯å¾„
     std::vector<HRTFData> wavFiles;
 
 public:

@@ -1,4 +1,4 @@
-#include "HeaderFile/WebgetCover.h"
+ï»¿#include "HeaderFile/WebgetCover.h"
 
 #include <QCoreApplication>
 #include <QDebug>
@@ -19,7 +19,7 @@ WebgetCover::WebgetCover(QObject* parent)
 
 void WebgetCover::searchMusicInfo(const QString& songName, const QString& singer,const float& targetDuration)
 {
-    // Èç¹û½ø³Ì»¹ÔÚÔËÐÐ£¬ÏÈÖÕÖ¹£¨±ÜÃâ³åÍ»£©
+    // å¦‚æžœè¿›ç¨‹è¿˜åœ¨è¿è¡Œï¼Œå…ˆç»ˆæ­¢ï¼ˆé¿å…å†²çªï¼‰
     if (m_coverProcess->state() == QProcess::Running) {
         m_coverProcess->kill();
         m_coverProcess->waitForFinished(100);
