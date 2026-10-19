@@ -357,7 +357,7 @@ ONNXRuntime_Lib.zip
 
 
 FFmpeg 的运行时 DLL 体积过大（`avcodec-62.dll` 约 92 MB），不入库。
-请从 Releases 的 `musicPlayer.zip` 中取出下列 DLL，放到 `nusicVideoQml.exe` 同目录：
+编译出的程序运行时需要下列 4 个 DLL，放到 `nusicVideoQml.exe` 同目录即可：
 
 ```
 avcodec-62.dll
@@ -365,6 +365,16 @@ avformat-62.dll
 avutil-60.dll
 swresample-6.dll
 ```
+
+
+获取方式（任选其一）：
+
+1. 下载 Releases 附件 `FFmpeg_Runtime_DLL.zip`（推荐，版本已锁定）；
+2. 下载 FFmpeg **8.1.1 x64 shared 版**（gyan.dev 的 full build），从 `bin/` 下取上述 4 个文件。
+
+
+> ⚠️ 版本必须匹配：`avcodec` 主版本号为 **62**（即 FFmpeg 8.x）。
+> FFmpeg 7.x 提供的是 `avcodec-61.dll`，与本仓库的 `avcodec.lib` 不配套，无法链接或运行。
 
 
 ---
